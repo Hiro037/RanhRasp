@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Предмет {{ subject.name }}</title>
+</head>
+<body>
+    <h1>Предмет: {{ subject.name }}</h1>
+    <a href="/edit-subject/{{ subject.subject_id }}">Редактировать</a>
+    <form method="post" action="/delete-subject/{{ subject.subject_id }}" style="display: inline;">
+        <button type="submit">Удалить</button>
+    </form>
+    <br><br>
+    <a href="/">На главную</a>
+</body>
+</html>

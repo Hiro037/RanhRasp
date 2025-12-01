@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Группа {{ group.group_name }}</title>
+</head>
+<body>
+    <h1>Группа: {{ group.group_name }}</h1>
+    <ul>
+        {% for lesson in lessons %}
+            <li>
+                <a href="/lesson/{{ lesson.lesson_id }}">
+                    {{ lesson.subject.name }} –
+                    {{ lesson.group.group_name }} –
+                    {{ lesson.teacher.name }} –
+                    аудитория {{ lesson.classroom }} –
+                    c {{ lesson.start_datetime }} до {{ lesson.end_datetime }}
+                    {% if lesson.lesson_type %} ({{ lesson.lesson_type }}) {% endif %}
+                </a>
+            </li>
+        {% endfor %}
+    </ul>
+
+
+    <a href="/edit-group/{{ group.group_id }}">Редактировать</a>
+    <form method="post" action="/delete-group/{{ group.group_id }}" style="display: inline;">
+        <button type="submit">Удалить</button>
+    </form>
+    <br><br>
+    <a href="/">На главную</a>
+</body>
+</html>

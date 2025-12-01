@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Преподаватель {{ teacher.name }}</title>
+</head>
+<body>
+    <h1>Преподаватель: {{ teacher.name }}</h1>
+    <ul>
+        {% for lesson in lessons %}
+            <li>
+                <a href="/lesson/{{ lesson.lesson_id }}">
+                    {{ lesson.subject.name }} –
+                    {{ lesson.group.group_name }} –
+                    {{ lesson.teacher.name }} –
+                    аудитория {{ lesson.classroom }} –
+                    c {{ lesson.start_datetime }} до {{ lesson.end_datetime }}
+                    {% if lesson.lesson_type %} ({{ lesson.lesson_type }}) {% endif %}
+                </a>
+            </li>
+        {% endfor %}
+    </ul>
+
+    <a href="/edit-teacher/{{ teacher.teacher_id }}">Редактировать</a>
+    <form method="post" action="/delete-teacher/{{ teacher.teacher_id }}" style="display: inline;">
+        <button type="submit">Удалить</button>
+    </form>
+    <br><br>
+    <a href="/">На главную</a>
+</body>
+</html>
