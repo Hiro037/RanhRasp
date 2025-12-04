@@ -12,10 +12,11 @@ import os
 from pathlib import Path
 from io import BytesIO
 from typing import Dict, Tuple, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import hashlib
 
 from aiogram import types, F, Router, Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
@@ -73,7 +74,7 @@ def format_time(dt_object: datetime) -> str:
 def greeting_by_time() -> str:
     """Возвращает приветствие в зависимости от времени суток"""
     # Часовой пояс МСК+2 (UTC+5)
-    msk_plus_2 = datetime.timezone(timedelta(hours=5))
+    msk_plus_2 = timezone(timedelta(hours=5))
     now = datetime.now(msk_plus_2)
     hour = now.hour
 
@@ -235,7 +236,7 @@ class ImageManager:
             return cached
 
         # Генерируем новое изображение
-        html = render_html(selected_date, group)
+        html = await render_html(selected_date, group)
         img = await html_to_image(html)
         caption = f"📅 Расписание на {format_date_readable_manual(selected_date)}"
 
