@@ -12,7 +12,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 load_dotenv()
 
-DB_URL = os.getenv("ASYNC_DB_URL")
+DB_URL = os.getenv("DB_URL")
 
 
 # Важно: для SQLite async используем aiosqlite://
@@ -277,7 +277,7 @@ class Lesson(Base):
     subject: Mapped["Subject"] = relationship("Subject", back_populates="lessons", lazy="selectin")
 
     # Дополнительные данные
-    classroom: Mapped[str] = mapped_column(String(50), nullable=False)
+    classroom: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="Не указана")
     lesson_type: Mapped[Optional[str]] = mapped_column(
         String(50),
         nullable=True,
