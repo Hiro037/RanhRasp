@@ -11,8 +11,7 @@ services:
       - studentslessons-db:/app/db
     environment:
       - PYTHONUNBUFFERED=1
-      - DB_URL=sqlite:///students_lessons.db
-      - ANALYTIC_DB_URL=sqlite+aiosqlite:///./analytics.db
+      - DB_URL=sqlite+aiosqlite:///./students_lessons.db
     restart: unless-stopped
     init: true
 
@@ -21,8 +20,7 @@ services:
     command: python main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - DB_URL=sqlite:///students_lessons.db
-      - ANALYTIC_DB_URL=sqlite+aiosqlite:///./analytics.db
+      - DB_URL=sqlite+aiosqlite:///./students_lessons.db
     volumes:
       - .:/app
       - studentslessons-db:/app/db

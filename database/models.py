@@ -291,6 +291,7 @@ class Lesson(Base):
 # ========== ИНИЦИАЛИЗАЦИЯ БД ==========
 
 # Создание асинхронного движка
+print(f"DB_URL: {DB_URL}")
 engine = create_async_engine(
     DB_URL,
     echo=False,  # Логирование SQL запросов (для отладки)
