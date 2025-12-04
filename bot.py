@@ -749,6 +749,12 @@ class ScheduleBot:
             await state.update_data(selected_date=selected_date)
             await callback.answer()
 
+        except TelegramBadRequest as e:
+            if "query is too old" in str(e).lower():
+                pass
+            else:
+                raise
+
         except Exception as e:
             print(f"⚠️ Ошибка генерации изображения: {e}")
             # Фолбэк - отправляем текстовое расписание
