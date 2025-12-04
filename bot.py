@@ -306,7 +306,7 @@ class KeyboardManager:
         elif path == "Юриспруденция":
             builder.add(types.InlineKeyboardButton(
                 text="Ю-41",
-                callback_data="Ю-42"
+                callback_data="Ю-41"
             ),
                 types.InlineKeyboardButton(
                     text="Ю-42",
