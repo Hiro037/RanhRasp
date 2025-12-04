@@ -139,7 +139,7 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-
+# FIXME: Исправить ошибку ValueError: [ValueError('dictionary update sequence element #0 has length 24; 2 is required'), TypeError('vars() argument must have __dict__ attribute')]
 @app.get("/api/stats", tags=["Statistics"])
 async def get_statistics():
     """Получить статистику системы"""
@@ -158,7 +158,7 @@ async def get_statistics():
             "requests": await uow.user_requests.count_by_type(days=7)
         }
 
-    return stats
+    return stats # <-- Тут возвращается не JSON, исправить
 
 
 # ========== ЗАГРУЗКА РАСПИСАНИЯ ==========
