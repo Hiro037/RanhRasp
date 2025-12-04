@@ -12,7 +12,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 load_dotenv()
 
-DB_URL = os.getenv("DB_URL")
+DB_URL = os.getenv("ASYNC_DB_URL")
 
 
 # Важно: для SQLite async используем aiosqlite://
