@@ -46,6 +46,10 @@ class Feedback(StatesGroup):
     """Состояние ожидания отзыва от пользователя"""
     waiting_for_text = State()
 
+class MainMenu(StatesGroup):
+    """Состояние главного меню"""
+    in_menu = State()
+
 
 class ScheduleFSM(StatesGroup):
     """Состояния для загрузки расписания (админ)"""
@@ -469,6 +473,27 @@ class KeyboardManager:
         builder.adjust(adjust, 1, 1)
         return builder.as_markup()
 
+    @staticmethod
+    def main_menu_keyboard() -> InlineKeyboardMarkup:
+        """Клавиатура главного меню"""
+        builder = InlineKeyboardBuilder()
+
+        builder.add(types.InlineKeyboardButton(
+            text="📅 Посмотреть расписание",
+            callback_data="view_schedule"
+        ))
+        builder.add(types.InlineKeyboardButton(
+            text="🔄 Сменить группу",
+            callback_data="change_group"
+        ))
+        builder.add(types.InlineKeyboardButton(
+            text="ℹ️ Помощь",
+            callback_data="show_help"
+        ))
+
+        builder.adjust(1)
+        return builder.as_markup()
+
 
 # ========== ОСНОВНОЙ КЛАСС БОТА ==========
 
@@ -495,6 +520,12 @@ class ScheduleBot:
         self.router.message(Command("feedback"))(self.feedback_start)
         self.router.message(Command("prepareschedule"))(self.prepare_schedule_start)
 
+        # Обработчики главного меню
+        self.router.callback_query(StateFilter(None), F.data == "view_schedule")(self.view_schedule_handler)
+        self.router.callback_query(StateFilter(None), F.data == "change_group")(self.change_group_handler)
+        self.router.callback_query(StateFilter(None), F.data == "show_help")(self.help_from_menu_handler)
+        self.router.callback_query(StateFilter(None), F.data == "main_menu")(self.main_menu)
+
         # Обработчики состояний для выбора расписания
         self.router.callback_query(StateFilter(None), F.data.in_(self.keyboard_manager.VALID_FACULTIES))(
             self.group_choose)
@@ -518,25 +549,28 @@ class ScheduleBot:
     # ========== КОМАНДЫ ==========
 
     async def start(self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None):
-        """Команда /start - приветствие и выбор группы"""
+        """Команда /start - приветствие и главное меню или выбор группы"""
         greeting = greeting_by_time()
 
         # Проверяем, есть ли у пользователя сохраненная группа
         if db_user and db_user.group:
+            # Если группа есть - показываем главное меню
             response = (
                 f"{greeting}, {message.from_user.first_name}! 👋\n\n"
                 f"Рад снова вас видеть! Ваша группа: <b>{db_user.group.group_name}</b>\n\n"
-                f"Выберите направление, чтобы посмотреть расписание, "
-                f"или используйте /mygroup для смены группы."
+                f"Что вы хотите сделать?"
             )
+            inline_keyboard = self.keyboard_manager.main_menu_keyboard()
         else:
+            # Если группы нет - предлагаем выбрать
             response = (
                 f"{greeting}, {message.from_user.first_name}! 👋\n\n"
                 f"Этот бот создан, чтобы помочь студентам всегда иметь под рукой актуальное расписание.\n\n"
                 f"Чтобы начать, выберите свое направление из списка!"
             )
 
-        inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
+            inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
+
         await self.message_manager.send_bot_message(message, response, inline_keyboard, bot, state)
         await state.clear()
 
@@ -639,6 +673,85 @@ class ScheduleBot:
             "Мы обязательно его рассмотрим и постараемся сделать бот еще лучше! 🚀"
         )
         await state.clear()
+
+    # ========== ОБРАБОТЧИКИ ГЛАВНОГО МЕНЮ ==========
+
+    async def main_menu(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None):
+        """Показать главное меню"""
+        greeting = greeting_by_time()
+
+        if db_user and db_user.group:
+            response = (
+                f"{greeting}! 👋\n\n"
+                f"Ваша группа: <b>{db_user.group.group_name}</b>\n\n"
+                f"Что вы хотите сделать?"
+            )
+        else:
+            response = "Выберите свое направление:"
+            inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
+            await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
+            await callback.answer()
+            return
+
+        inline_keyboard = self.keyboard_manager.main_menu_keyboard()
+        await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
+        await callback.answer()
+
+    async def view_schedule_handler(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot,
+                                    db_user: User = None):
+        """Начать просмотр расписания из главного меню"""
+        if not db_user or not db_user.group:
+            await callback.answer("⚠️ Сначала выберите группу", show_alert=True)
+            return
+
+        # Сохраняем группу в состояние
+        await state.update_data(group=db_user.group.group_name)
+
+        response = '📅 Выберите дату, на которую хотите узнать расписание:'
+        await self.message_manager.send_bot_message(
+            callback,
+            response,
+            self.keyboard_manager.date_choose_keyboard(),
+            bot,
+            state
+        )
+        await state.set_state(GroupDateChoose.choosing_date)
+        await callback.answer()
+
+    async def change_group_handler(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+        """Изменить группу из главного меню"""
+        response = "Выберите свое направление:"
+        inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
+
+        await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
+        await state.clear()
+        await callback.answer()
+
+    async def help_from_menu_handler(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+        """Показать справку из меню"""
+        answer = (
+            "<b>📖 Справка</b>\n\n"
+            f"<b>Доступные команды:</b>\n"
+            f"• /start - главное меню\n"
+            f"• /mygroup - посмотреть/изменить свою группу\n"
+            f"• /feedback - отправить отзыв или предложение\n"
+            f"• /help - показать эту справку\n\n"
+            f"<b>Возможности бота:</b>\n"
+            f"• Просмотр расписания на любую дату\n"
+            f"• Навигация по датам\n"
+            f"• Автоматическое сохранение вашей группы\n\n"
+            f"<i>Если возникли проблемы, используйте /start</i>"
+        )
+
+        # Добавляем кнопку "Назад в меню"
+        builder = InlineKeyboardBuilder()
+        builder.add(types.InlineKeyboardButton(
+            text="⬅️ Назад в меню",
+            callback_data="main_menu"
+        ))
+
+        await self.message_manager.send_bot_message(callback, answer, builder.as_markup(), bot, state)
+        await callback.answer()
 
     # ========== ОБРАБОТЧИКИ ВЫБОРА РАСПИСАНИЯ ==========
 
@@ -776,15 +889,27 @@ class ScheduleBot:
         )
         await callback.answer()
 
-    async def cancel_handler(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+    async def cancel_handler(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None):
         """Отмена и возврат в главное меню"""
         await state.clear()
-        response = (
-            "🏠 Главное меню\n\n"
-            "Чтобы начать заново, используйте /start\n"
-            "Для помощи используйте /help"
-        )
-        await self.message_manager.send_bot_message(callback, response, None, bot, state)
+
+        if db_user and db_user.group:
+            # Если группа есть - возвращаем в главное меню
+            response = (
+                f"🏠 Главное меню\n\n"
+                f"Ваша группа: <b>{db_user.group.group_name}</b>\n\n"
+                f"Что вы хотите сделать?"
+            )
+            inline_keyboard = self.keyboard_manager.main_menu_keyboard()
+        else:
+            # Если группы нет - предлагаем выбрать
+            response = (
+                "🏠 Главное меню\n\n"
+                "Чтобы начать, выберите свое направление!"
+            )
+            inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
+
+        await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
         await callback.answer()
 
     # ========== ЗАГРУЗКА РАСПИСАНИЯ (АДМИН) ==========
