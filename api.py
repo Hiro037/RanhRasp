@@ -30,6 +30,7 @@ from test_parse import (
     validate_schedule_file,
     print_schedule_summary
 )
+from fastapi.responses import JSONResponse
 
 # ========== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ ==========
 
@@ -139,26 +140,40 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-# FIXME: Исправить ошибку ValueError: [ValueError('dictionary update sequence element #0 has length 24; 2 is required'), TypeError('vars() argument must have __dict__ attribute')]
 @app.get("/api/stats", tags=["Statistics"])
 async def get_statistics():
     """Получить статистику системы"""
     async with UnitOfWork() as uow:
+        # Получаем данные
+        users_total = await uow.users.count_total()
+        users_today = await uow.users.count_active(days=1)
+        users_week = await uow.users.count_active(days=7)
+
+        groups_list = await uow.groups.get_all()
+        teachers_list = await uow.teachers.get_all()
+        subjects_list = await uow.subjects.get_all()
+
+        requests_data = await uow.user_requests.count_by_type(days=7)
+
+        # Формируем простой словарь с базовыми типами
         stats = {
             "users": {
-                "total": await uow.users.count_total(),
-                "active_today": await uow.users.count_active(days=1),
-                "active_week": await uow.users.count_active(days=7),
+                "total": int(users_total),  # Приводим к int
+                "active_today": int(users_today),
+                "active_week": int(users_week),
             },
             "entities": {
-                "groups": len(await uow.groups.get_all()),
-                "teachers": len(await uow.teachers.get_all()),
-                "subjects": len(await uow.subjects.get_all()),
+                "groups": len(groups_list),
+                "teachers": len(teachers_list),
+                "subjects": len(subjects_list),
             },
-            "requests": await uow.user_requests.count_by_type(days=7)
+            "requests": {
+                # Преобразуем к простым типам
+                "total": sum(int(count) for _, count in requests_data) if isinstance(requests_data, list) else 0
+            }
         }
 
-    return stats # <-- Тут возвращается не JSON, исправить
+    return JSONResponse(content=stats)
 
 
 # ========== ЗАГРУЗКА РАСПИСАНИЯ ==========
