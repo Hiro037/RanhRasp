@@ -98,28 +98,38 @@ class User(Base):
 class UserRequest(Base):
     """
     Модель запросов пользователей к боту
-
     Логирует все взаимодействия пользователей
     """
     __tablename__ = 'user_requests'
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
-    # Связь с пользователем
+    # Связь с пользователем (ТОЛЬКО ОДИН FK!)
     user_id: Mapped[int] = mapped_column(
         ForeignKey('users.id', ondelete='CASCADE'),
         nullable=False,
         index=True
     )
+
+    # Снапшот данных пользователя на момент запроса (БЕЗ FK)
     telegram_id: Mapped[int] = mapped_column(
-        ForeignKey('users.user_id', ondelete='CASCADE'),
-        index=True
-    )
-    username: Mapped[Optional[str]] = mapped_column(
-        ForeignKey('users.username', ondelete='CASCADE'),
+        BigInteger,
         index=True,
+        comment="Telegram ID пользователя (снапшот)"
     )
-    user: Mapped["User"] = relationship("User", back_populates="requests", lazy="selectin")
+
+    username: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Username пользователя (снапшот)"
+    )
+
+    # Упрощённый relationship
+    user: Mapped["User"] = relationship(
+        "User",
+        back_populates="requests",
+        lazy="selectin"
+    )
 
     # Данные запроса
     request_type: Mapped[str] = mapped_column(
@@ -128,20 +138,19 @@ class UserRequest(Base):
         index=True,
         comment="Тип запроса: command, callback, schedule_view, etc."
     )
+
     request_data: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
         comment="Текст запроса или JSON с данными"
     )
 
-    # Группа на момент запроса (может отличаться от текущей)
     group_snapshot: Mapped[Optional[str]] = mapped_column(
         String(50),
         nullable=True,
         comment="Группа пользователя на момент запроса"
     )
 
-    # Метаданные
     timestamp: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.now,
@@ -150,7 +159,7 @@ class UserRequest(Base):
     )
 
     def __repr__(self):
-        return f"<UserRequest(id={self.id}, user_id={self.user_id}, type={self.request_type}, timestamp={self.timestamp})>"
+        return f"<UserRequest(id={self.id}, user_id={self.user_id}, type={self.request_type})>"
 
 
 # ========== СУЩЕСТВУЮЩИЕ МОДЕЛИ (ОБНОВЛЕННЫЕ) ==========

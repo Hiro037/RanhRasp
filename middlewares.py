@@ -53,7 +53,9 @@ class UserActivityMiddleware(BaseMiddleware):
                     user_id=user.id,
                     request_type=request_type,
                     request_data=request_data,
-                    group_snapshot=user.group.group_name if user.group else None
+                    group_snapshot=user.group.group_name if user.group else None,
+                    telegram_id=user.user_id,
+                    username=user.username,
                 )
 
                 # Обновляем активность

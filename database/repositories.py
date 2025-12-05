@@ -153,7 +153,9 @@ class UserRequestRepository:
             user_id: int,  # внутренний ID User
             request_type: str,
             request_data: Optional[str] = None,
-            group_snapshot: Optional[str] = None
+            group_snapshot: Optional[str] = None,
+            telegram_id: Optional[int] = None,
+            username: Optional[str] = None,
     ) -> UserRequest:
         """Создать запись о запросе пользователя"""
         request = UserRequest(
@@ -161,6 +163,8 @@ class UserRequestRepository:
             request_type=request_type,
             request_data=request_data,
             group_snapshot=group_snapshot,
+            telegram_id=telegram_id,
+            username=username,
             timestamp=datetime.now()
         )
         self.session.add(request)
