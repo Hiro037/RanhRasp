@@ -95,7 +95,6 @@ class User(Base):
 
 # ========== МОДЕЛЬ ЗАПРОСОВ ПОЛЬЗОВАТЕЛЯ (НОВАЯ!) ==========
 
-# FIXME: Добавить никнейм, id телеграма
 class UserRequest(Base):
     """
     Модель запросов пользователей к боту
@@ -111,6 +110,14 @@ class UserRequest(Base):
         ForeignKey('users.id', ondelete='CASCADE'),
         nullable=False,
         index=True
+    )
+    telegram_id: Mapped[int] = mapped_column(
+        ForeignKey('users.user_id', ondelete='CASCADE'),
+        index=True
+    )
+    username: Mapped[Optional[str]] = mapped_column(
+        ForeignKey('users.username', ondelete='CASCADE'),
+        index=True,
     )
     user: Mapped["User"] = relationship("User", back_populates="requests", lazy="selectin")
 
