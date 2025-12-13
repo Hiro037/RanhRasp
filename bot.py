@@ -8,51 +8,59 @@
 - Персонализированный опыт для вернувшихся пользователей
 - Улучшенная архитектура с разделением ответственности
 """
-import os
-from pathlib import Path
-from io import BytesIO
-from typing import Dict, Tuple, Optional
-from datetime import datetime, date, timedelta, timezone
-import hashlib
 
-from aiogram import types, F, Router, Bot
+import hashlib
+import os
+from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
+from pathlib import Path
+from typing import Dict, Optional, Tuple
+
+from aiogram import Bot, F, Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import InlineKeyboardMarkup, BufferedInputFile
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dotenv import load_dotenv
 
+from database.models import Group, User
 from database.repositories import UnitOfWork
-from database.models import User, Group
-from test_parse import convert_doc_to_docx, parse_docx_schedule, import_schedule_to_db_async
-from jinja_renderer import render_html, html_to_image
+from jinja_renderer import html_to_image, render_html
+from test_parse import (convert_doc_to_docx, import_schedule_to_db_async,
+                        parse_docx_schedule)
 
 load_dotenv()
 
-ADMIN_ID = os.getenv('ADMIN_ID')
+ADMIN_ID = os.getenv("ADMIN_ID")
 
 
 # ========== СОСТОЯНИЯ FSM ==========
 
+
 class GroupDateChoose(StatesGroup):
     """Состояния для выбора группы и даты"""
+
     choosing_group = State()
     choosing_date = State()
 
 
 class Feedback(StatesGroup):
     """Состояние ожидания отзыва от пользователя"""
+
     waiting_for_text = State()
+
 
 class MainMenu(StatesGroup):
     """Состояние главного меню"""
+
     in_menu = State()
 
 
 class ScheduleFSM(StatesGroup):
     """Состояния для загрузки расписания (админ)"""
+
     choosing_group = State()
     choosing_month = State()
     waiting_for_file = State()
@@ -60,19 +68,29 @@ class ScheduleFSM(StatesGroup):
 
 # ========== УТИЛИТЫ ==========
 
+
 def format_date_readable_manual(date_obj: date) -> str:
     """Преобразует дату в читаемый формат '28 мая'"""
     months_ru = {
-        1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-        5: "мая", 6: "июня", 7: "июля", 8: "августа",
-        9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+        1: "января",
+        2: "февраля",
+        3: "марта",
+        4: "апреля",
+        5: "мая",
+        6: "июня",
+        7: "июля",
+        8: "августа",
+        9: "сентября",
+        10: "октября",
+        11: "ноября",
+        12: "декабря",
     }
     return f"{date_obj.day} {months_ru[date_obj.month]}"
 
 
 def format_time(dt_object: datetime) -> str:
     """Преобразует datetime в строку времени ЧЧ:ММ"""
-    return dt_object.strftime('%H:%M')
+    return dt_object.strftime("%H:%M")
 
 
 def greeting_by_time() -> str:
@@ -112,7 +130,7 @@ async def create_schedule_text(selected_date: date, group_name: str) -> str:
         # Получаем занятия на дату
         lessons = await uow.lessons.get_by_group_and_date(group.group_id, selected_date)
 
-        answer = f'Расписание на {format_date_readable_manual(selected_date)}:\n\n'
+        answer = f"Расписание на {format_date_readable_manual(selected_date)}:\n\n"
 
         if lessons:
             for lesson in lessons:
@@ -126,12 +144,13 @@ async def create_schedule_text(selected_date: date, group_name: str) -> str:
                     answer += f"📝 {lesson.lesson_type}\n"
                 answer += "\n"
         else:
-            answer += '✨ У вас нет занятий в этот день'
+            answer += "✨ У вас нет занятий в этот день"
 
     return answer
 
 
 # ========== КЭШ ИЗОБРАЖЕНИЙ ==========
+
 
 class ScheduleImageCache:
     """Класс для управления кэшем изображений расписания"""
@@ -166,10 +185,9 @@ class ScheduleImageCache:
         # Очищаем кэш если он превысил максимальный размер
         if len(self._cache) >= self.max_size:
             # Удаляем 25% самых старых записей
-            oldest_keys = sorted(
-                self._cache.keys(),
-                key=lambda k: self._cache[k][2]
-            )[:self.max_size // 4]
+            oldest_keys = sorted(self._cache.keys(), key=lambda k: self._cache[k][2])[
+                : self.max_size // 4
+            ]
 
             for key in oldest_keys:
                 del self._cache[key]
@@ -186,7 +204,8 @@ class ScheduleImageCache:
     def clear_group(self, group_name: str):
         """Очистить кэш для конкретной группы"""
         keys_to_remove = [
-            key for key in self._cache.keys()
+            key
+            for key in self._cache.keys()
             if key.endswith(hashlib.md5(group_name.encode()).hexdigest()[-8:])
         ]
         for key in keys_to_remove:
@@ -194,6 +213,7 @@ class ScheduleImageCache:
 
 
 # ========== МЕНЕДЖЕРЫ ==========
+
 
 class ImageManager:
     """Класс для управления изображениями"""
@@ -228,10 +248,7 @@ class ImageManager:
             return None
 
     async def get_schedule_image(
-            self,
-            selected_date: date,
-            group: str,
-            cache: ScheduleImageCache
+        self, selected_date: date, group: str, cache: ScheduleImageCache
     ) -> Tuple[BytesIO, str]:
         """Получить изображение расписания (из кэша или сгенерировать новое)"""
         # Пытаемся получить из кэша
@@ -257,33 +274,43 @@ class BotMessageManager:
         self.image_manager = image_manager
 
     async def send_bot_message(
-            self,
-            target: types.Message | types.CallbackQuery,
-            text: str,
-            reply_markup: InlineKeyboardMarkup = None,
-            bot: Bot = None,
-            state: FSMContext = None,
-            with_image: bool = True
+        self,
+        target: types.Message | types.CallbackQuery,
+        text: str,
+        reply_markup: InlineKeyboardMarkup = None,
+        bot: Bot = None,
+        state: FSMContext = None,
+        with_image: bool = True,
     ) -> types.Message:
         """
         Универсальная функция для отправки сообщений бота с управлением историей
         """
-        chat_id = target.message.chat.id if isinstance(target, types.CallbackQuery) else target.chat.id
-        message_to_edit = target.message if isinstance(target, types.CallbackQuery) else None
+        chat_id = (
+            target.message.chat.id
+            if isinstance(target, types.CallbackQuery)
+            else target.chat.id
+        )
+        message_to_edit = (
+            target.message if isinstance(target, types.CallbackQuery) else None
+        )
 
         # Удаляем предыдущее сообщение бота если есть
         await self.delete_last_bot_message(state, bot, chat_id)
 
         try:
             if with_image:
-                file_id = await self.image_manager.get_or_upload_middle_image(bot, chat_id)
+                file_id = await self.image_manager.get_or_upload_middle_image(
+                    bot, chat_id
+                )
                 if file_id:
                     if message_to_edit:
                         # Пытаемся отредактировать существующее сообщение
                         try:
                             sent = await message_to_edit.edit_media(
-                                media=types.InputMediaPhoto(media=file_id, caption=text),
-                                reply_markup=reply_markup
+                                media=types.InputMediaPhoto(
+                                    media=file_id, caption=text
+                                ),
+                                reply_markup=reply_markup,
                             )
                             await state.update_data(last_message_id=sent.message_id)
                             return sent
@@ -292,27 +319,30 @@ class BotMessageManager:
 
                     # Отправляем новое сообщение с фото
                     sent = await bot.send_photo(
-                        chat_id,
-                        file_id,
-                        caption=text,
-                        reply_markup=reply_markup
+                        chat_id, file_id, caption=text, reply_markup=reply_markup
                     )
                 else:
                     # Если картинка недоступна, отправляем текстовое сообщение
                     if message_to_edit:
                         try:
-                            sent = await message_to_edit.edit_text(text, reply_markup=reply_markup)
+                            sent = await message_to_edit.edit_text(
+                                text, reply_markup=reply_markup
+                            )
                             await state.update_data(last_message_id=sent.message_id)
                             return sent
                         except Exception:
                             pass
 
-                    sent = await bot.send_message(chat_id, text, reply_markup=reply_markup)
+                    sent = await bot.send_message(
+                        chat_id, text, reply_markup=reply_markup
+                    )
             else:
                 # Отправка без картинки
                 if message_to_edit:
                     try:
-                        sent = await message_to_edit.edit_text(text, reply_markup=reply_markup)
+                        sent = await message_to_edit.edit_text(
+                            text, reply_markup=reply_markup
+                        )
                         await state.update_data(last_message_id=sent.message_id)
                         return sent
                     except Exception:
@@ -355,10 +385,20 @@ class KeyboardManager:
 
     VALID_FACULTIES = {"Экономика", "Менеджмент", "ГМУ", "Юриспруденция"}
     VALID_GROUPS = {
-        "Э-42", "Э-43", "Э-44",
-        "М-42", "М-43", "М-44",
-        "ГМУ-41", "ГМУ-42", "ГМУ-43", "ГМУ-44",
-        "Ю-41", "Ю-42", "Ю-43", "Ю-44"
+        "Э-42",
+        "Э-43",
+        "Э-44",
+        "М-42",
+        "М-43",
+        "М-44",
+        "ГМУ-41",
+        "ГМУ-42",
+        "ГМУ-43",
+        "ГМУ-44",
+        "Ю-41",
+        "Ю-42",
+        "Ю-43",
+        "Ю-44",
     }
 
     @staticmethod
@@ -368,10 +408,11 @@ class KeyboardManager:
         for faculty in KeyboardManager.VALID_FACULTIES:
             builder.add(types.InlineKeyboardButton(text=faculty, callback_data=faculty))
 
-        builder.add(types.InlineKeyboardButton(
-            text="❌ Выход в главное меню",
-            callback_data="cancel"
-        ))
+        builder.add(
+            types.InlineKeyboardButton(
+                text="❌ Выход в главное меню", callback_data="cancel"
+            )
+        )
         builder.adjust(2)
         return builder.as_markup()
 
@@ -394,14 +435,14 @@ class KeyboardManager:
         for group in groups:
             builder.add(types.InlineKeyboardButton(text=group, callback_data=group))
 
-        builder.add(types.InlineKeyboardButton(
-            text="⬅️ Назад",
-            callback_data="back_to_faculty"
-        ))
-        builder.add(types.InlineKeyboardButton(
-            text="❌ Выход в главное меню",
-            callback_data="cancel"
-        ))
+        builder.add(
+            types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_faculty")
+        )
+        builder.add(
+            types.InlineKeyboardButton(
+                text="❌ Выход в главное меню", callback_data="cancel"
+            )
+        )
         builder.adjust(2)
         return builder.as_markup()
 
@@ -420,15 +461,17 @@ class KeyboardManager:
             elif i == 1:
                 button_text = f"🟡 Завтра ({button_text})"
 
-            builder.add(types.InlineKeyboardButton(
-                text=button_text,
-                callback_data=f"date_{target_date.isoformat()}"
-            ))
+            builder.add(
+                types.InlineKeyboardButton(
+                    text=button_text, callback_data=f"date_{target_date.isoformat()}"
+                )
+            )
 
-        builder.add(types.InlineKeyboardButton(
-            text="❌ Выход в главное меню",
-            callback_data="cancel"
-        ))
+        builder.add(
+            types.InlineKeyboardButton(
+                text="❌ Выход в главное меню", callback_data="cancel"
+            )
+        )
         builder.adjust(1)
         return builder.as_markup()
 
@@ -445,30 +488,36 @@ class KeyboardManager:
 
         # Левая стрелка (назад)
         if left_enabled:
-            builder.add(types.InlineKeyboardButton(
-                text="⬅️ Назад",
-                callback_data=f"nav_{(selected_date - timedelta(days=1)).isoformat()}"
-            ))
+            builder.add(
+                types.InlineKeyboardButton(
+                    text="⬅️ Назад",
+                    callback_data=f"nav_{(selected_date - timedelta(days=1)).isoformat()}",
+                )
+            )
             adjust += 1
 
         # Правая стрелка (вперед)
         if right_enabled:
-            builder.add(types.InlineKeyboardButton(
-                text="Вперед ➡️",
-                callback_data=f"nav_{(selected_date + timedelta(days=1)).isoformat()}"
-            ))
+            builder.add(
+                types.InlineKeyboardButton(
+                    text="Вперед ➡️",
+                    callback_data=f"nav_{(selected_date + timedelta(days=1)).isoformat()}",
+                )
+            )
             adjust += 1
 
         # Кнопка "Выбрать другую дату"
-        builder.add(types.InlineKeyboardButton(
-            text="📅 Выбрать дату",
-            callback_data="choose_another_date"
-        ))
+        builder.add(
+            types.InlineKeyboardButton(
+                text="📅 Выбрать дату", callback_data="choose_another_date"
+            )
+        )
 
-        builder.add(types.InlineKeyboardButton(
-            text="❌ Выход в главное меню",
-            callback_data="cancel"
-        ))
+        builder.add(
+            types.InlineKeyboardButton(
+                text="❌ Выход в главное меню", callback_data="cancel"
+            )
+        )
 
         builder.adjust(adjust, 1, 1)
         return builder.as_markup()
@@ -478,24 +527,26 @@ class KeyboardManager:
         """Клавиатура главного меню"""
         builder = InlineKeyboardBuilder()
 
-        builder.add(types.InlineKeyboardButton(
-            text="📅 Посмотреть расписание",
-            callback_data="view_schedule"
-        ))
-        builder.add(types.InlineKeyboardButton(
-            text="🔄 Сменить группу",
-            callback_data="change_group"
-        ))
-        builder.add(types.InlineKeyboardButton(
-            text="ℹ️ Помощь",
-            callback_data="show_help"
-        ))
+        builder.add(
+            types.InlineKeyboardButton(
+                text="📅 Посмотреть расписание", callback_data="view_schedule"
+            )
+        )
+        builder.add(
+            types.InlineKeyboardButton(
+                text="🔄 Сменить группу", callback_data="change_group"
+            )
+        )
+        builder.add(
+            types.InlineKeyboardButton(text="ℹ️ Помощь", callback_data="show_help")
+        )
 
         builder.adjust(1)
         return builder.as_markup()
 
 
 # ========== ОСНОВНОЙ КЛАСС БОТА ==========
+
 
 class ScheduleBot:
     """Основной класс бота для управления расписанием"""
@@ -521,34 +572,62 @@ class ScheduleBot:
         self.router.message(Command("prepareschedule"))(self.prepare_schedule_start)
 
         # Обработчики главного меню
-        self.router.callback_query(StateFilter(None), F.data == "view_schedule")(self.view_schedule_handler)
-        self.router.callback_query(StateFilter(None), F.data == "change_group")(self.change_group_handler)
-        self.router.callback_query(StateFilter(None), F.data == "show_help")(self.help_from_menu_handler)
-        self.router.callback_query(StateFilter(None), F.data == "main_menu")(self.main_menu)
+        self.router.callback_query(StateFilter(None), F.data == "view_schedule")(
+            self.view_schedule_handler
+        )
+        self.router.callback_query(StateFilter(None), F.data == "change_group")(
+            self.change_group_handler
+        )
+        self.router.callback_query(StateFilter(None), F.data == "show_help")(
+            self.help_from_menu_handler
+        )
+        self.router.callback_query(StateFilter(None), F.data == "main_menu")(
+            self.main_menu
+        )
 
         # Обработчики состояний для выбора расписания
-        self.router.callback_query(StateFilter(None), F.data.in_(self.keyboard_manager.VALID_FACULTIES))(
-            self.group_choose)
-        self.router.callback_query(StateFilter(None), F.data == "back_to_faculty")(self.back_to_faculty)
-        self.router.callback_query(GroupDateChoose.choosing_group, F.data.in_(self.keyboard_manager.VALID_GROUPS))(
-            self.date_choose)
-        self.router.callback_query(GroupDateChoose.choosing_date, F.data.startswith("date_"))(self.answer)
-        self.router.callback_query(GroupDateChoose.choosing_date, F.data.startswith("nav_"))(self.answer)
-        self.router.callback_query(GroupDateChoose.choosing_date, F.data == "choose_another_date")(
-            self.choose_another_date)
-        self.router.callback_query(StateFilter("*"), F.data == "cancel")(self.cancel_handler)
+        self.router.callback_query(
+            StateFilter(None), F.data.in_(self.keyboard_manager.VALID_FACULTIES)
+        )(self.group_choose)
+        self.router.callback_query(StateFilter(None), F.data == "back_to_faculty")(
+            self.back_to_faculty
+        )
+        self.router.callback_query(
+            GroupDateChoose.choosing_group,
+            F.data.in_(self.keyboard_manager.VALID_GROUPS),
+        )(self.date_choose)
+        self.router.callback_query(
+            GroupDateChoose.choosing_date, F.data.startswith("date_")
+        )(self.answer)
+        self.router.callback_query(
+            GroupDateChoose.choosing_date, F.data.startswith("nav_")
+        )(self.answer)
+        self.router.callback_query(
+            GroupDateChoose.choosing_date, F.data == "choose_another_date"
+        )(self.choose_another_date)
+        self.router.callback_query(StateFilter("*"), F.data == "cancel")(
+            self.cancel_handler
+        )
 
         # Обработчики для загрузки расписания (админ)
-        self.router.callback_query(ScheduleFSM.choosing_group, F.data.startswith("g_"))(self.choose_group)
-        self.router.callback_query(ScheduleFSM.choosing_month, F.data.startswith("m_"))(self.choose_month)
-        self.router.message(ScheduleFSM.waiting_for_file, F.document)(self.schedule_file_uploaded)
+        self.router.callback_query(ScheduleFSM.choosing_group, F.data.startswith("g_"))(
+            self.choose_group
+        )
+        self.router.callback_query(ScheduleFSM.choosing_month, F.data.startswith("m_"))(
+            self.choose_month
+        )
+        self.router.message(ScheduleFSM.waiting_for_file, F.document)(
+            self.schedule_file_uploaded
+        )
 
         # Обработчик отзывов
         self.router.message(Feedback.waiting_for_text)(self.feedback_receive)
 
     # ========== КОМАНДЫ ==========
 
-    async def start(self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None):
+    async def start(
+        self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
+    ):
         """Команда /start - приветствие и главное меню или выбор группы"""
         greeting = greeting_by_time()
 
@@ -571,7 +650,9 @@ class ScheduleBot:
 
             inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
 
-        await self.message_manager.send_bot_message(message, response, inline_keyboard, bot, state)
+        await self.message_manager.send_bot_message(
+            message, response, inline_keyboard, bot, state
+        )
         await state.clear()
 
     async def help_handler(self, message: types.Message, state: FSMContext, bot: Bot):
@@ -590,7 +671,9 @@ class ScheduleBot:
         )
         await self.message_manager.send_bot_message(message, answer, None, bot, state)
 
-    async def my_group_handler(self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None):
+    async def my_group_handler(
+        self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
+    ):
         """Команда /mygroup - показать/изменить группу"""
         if db_user and db_user.group:
             response = (
@@ -601,7 +684,9 @@ class ScheduleBot:
             response = "У вас еще не выбрана группа.\n\nВыберите свое направление:"
 
         inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
-        await self.message_manager.send_bot_message(message, response, inline_keyboard, bot, state)
+        await self.message_manager.send_bot_message(
+            message, response, inline_keyboard, bot, state
+        )
         await state.clear()
 
     async def stats_handler(self, message: types.Message, state: FSMContext, bot: Bot):
@@ -646,12 +731,18 @@ class ScheduleBot:
         await self.message_manager.send_bot_message(message, response, None, bot, state)
         await state.set_state(Feedback.waiting_for_text)
 
-    async def feedback_receive(self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None):
+    async def feedback_receive(
+        self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
+    ):
         """Получение отзыва от пользователя"""
         text = message.text
 
         # Формируем информацию о пользователе
-        user_info = f"@{message.from_user.username}" if message.from_user.username else f"ID: {message.from_user.id}"
+        user_info = (
+            f"@{message.from_user.username}"
+            if message.from_user.username
+            else f"ID: {message.from_user.id}"
+        )
         if db_user and db_user.group:
             user_info += f" | Группа: {db_user.group.group_name}"
 
@@ -662,7 +753,7 @@ class ScheduleBot:
                 f"📬 <b>Новый отзыв</b>\n\n"
                 f"От: {user_info}\n"
                 f"Имя: {message.from_user.first_name}\n\n"
-                f"<i>{text}</i>"
+                f"<i>{text}</i>",
             )
         except Exception as e:
             print(f"⚠️ Ошибка отправки отзыва админу: {e}")
@@ -676,7 +767,13 @@ class ScheduleBot:
 
     # ========== ОБРАБОТЧИКИ ГЛАВНОГО МЕНЮ ==========
 
-    async def main_menu(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None):
+    async def main_menu(
+        self,
+        callback: types.CallbackQuery,
+        state: FSMContext,
+        bot: Bot,
+        db_user: User = None,
+    ):
         """Показать главное меню"""
         greeting = greeting_by_time()
 
@@ -689,16 +786,25 @@ class ScheduleBot:
         else:
             response = "Выберите свое направление:"
             inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
-            await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
+            await self.message_manager.send_bot_message(
+                callback, response, inline_keyboard, bot, state
+            )
             await callback.answer()
             return
 
         inline_keyboard = self.keyboard_manager.main_menu_keyboard()
-        await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
+        await self.message_manager.send_bot_message(
+            callback, response, inline_keyboard, bot, state
+        )
         await callback.answer()
 
-    async def view_schedule_handler(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot,
-                                    db_user: User = None):
+    async def view_schedule_handler(
+        self,
+        callback: types.CallbackQuery,
+        state: FSMContext,
+        bot: Bot,
+        db_user: User = None,
+    ):
         """Начать просмотр расписания из главного меню"""
         if not db_user or not db_user.group:
             await callback.answer("⚠️ Сначала выберите группу", show_alert=True)
@@ -707,27 +813,29 @@ class ScheduleBot:
         # Сохраняем группу в состояние
         await state.update_data(group=db_user.group.group_name)
 
-        response = '📅 Выберите дату, на которую хотите узнать расписание:'
+        response = "📅 Выберите дату, на которую хотите узнать расписание:"
         await self.message_manager.send_bot_message(
-            callback,
-            response,
-            self.keyboard_manager.date_choose_keyboard(),
-            bot,
-            state
+            callback, response, self.keyboard_manager.date_choose_keyboard(), bot, state
         )
         await state.set_state(GroupDateChoose.choosing_date)
         await callback.answer()
 
-    async def change_group_handler(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+    async def change_group_handler(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot
+    ):
         """Изменить группу из главного меню"""
         response = "Выберите свое направление:"
         inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
 
-        await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
+        await self.message_manager.send_bot_message(
+            callback, response, inline_keyboard, bot, state
+        )
         await state.clear()
         await callback.answer()
 
-    async def help_from_menu_handler(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+    async def help_from_menu_handler(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot
+    ):
         """Показать справку из меню"""
         answer = (
             "<b>📖 Справка</b>\n\n"
@@ -745,42 +853,51 @@ class ScheduleBot:
 
         # Добавляем кнопку "Назад в меню"
         builder = InlineKeyboardBuilder()
-        builder.add(types.InlineKeyboardButton(
-            text="⬅️ Назад в меню",
-            callback_data="main_menu"
-        ))
+        builder.add(
+            types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="main_menu")
+        )
 
-        await self.message_manager.send_bot_message(callback, answer, builder.as_markup(), bot, state)
+        await self.message_manager.send_bot_message(
+            callback, answer, builder.as_markup(), bot, state
+        )
         await callback.answer()
 
     # ========== ОБРАБОТЧИКИ ВЫБОРА РАСПИСАНИЯ ==========
 
-    async def group_choose(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+    async def group_choose(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot
+    ):
         """Выбор группы после выбора факультета"""
         faculty = callback.data
         response = "Отлично! Теперь выберите свою группу:"
         inline_keyboard = self.keyboard_manager.groups_choose_keyboard(faculty)
 
-        await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
+        await self.message_manager.send_bot_message(
+            callback, response, inline_keyboard, bot, state
+        )
         await state.set_state(GroupDateChoose.choosing_group)
         await state.update_data(faculty=faculty)
         await callback.answer()
 
-    async def back_to_faculty(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+    async def back_to_faculty(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot
+    ):
         """Возврат к выбору факультета"""
         response = "Выберите свое направление:"
         inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
 
-        await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
+        await self.message_manager.send_bot_message(
+            callback, response, inline_keyboard, bot, state
+        )
         await state.clear()
         await callback.answer()
 
     async def date_choose(
-            self,
-            callback: types.CallbackQuery,
-            state: FSMContext,
-            bot: Bot,
-            db_user: User = None
+        self,
+        callback: types.CallbackQuery,
+        state: FSMContext,
+        bot: Bot,
+        db_user: User = None,
     ):
         """Выбор даты после выбора группы"""
         if callback.data == "cancel":
@@ -798,14 +915,10 @@ class ScheduleBot:
                     await uow.commit()
 
         await state.update_data(group=group_name)
-        response = '📅 Теперь выберите дату, на которую хотите узнать расписание:'
+        response = "📅 Теперь выберите дату, на которую хотите узнать расписание:"
 
         await self.message_manager.send_bot_message(
-            callback,
-            response,
-            self.keyboard_manager.date_choose_keyboard(),
-            bot,
-            state
+            callback, response, self.keyboard_manager.date_choose_keyboard(), bot, state
         )
         await state.set_state(GroupDateChoose.choosing_date)
         await callback.answer()
@@ -825,10 +938,10 @@ class ScheduleBot:
 
         # Определяем дату
         if callback.data.startswith("date_"):
-            date_string = callback.data.split('_')[1]
+            date_string = callback.data.split("_")[1]
             selected_date = date.fromisoformat(date_string)
         elif callback.data.startswith("nav_"):
-            date_string = callback.data.split('_')[1]
+            date_string = callback.data.split("_")[1]
             selected_date = date.fromisoformat(date_string)
         else:
             await callback.answer()
@@ -837,9 +950,7 @@ class ScheduleBot:
         # Получаем изображение расписания
         try:
             img, caption = await self.image_manager.get_schedule_image(
-                selected_date,
-                group_name,
-                self.cache
+                selected_date, group_name, self.cache
             )
 
             photo_file = BufferedInputFile(
@@ -850,7 +961,9 @@ class ScheduleBot:
             kb = self.keyboard_manager.navigation_keyboard(selected_date)
 
             # Удаляем предыдущее сообщение
-            await self.message_manager.delete_last_bot_message(state, bot, callback.message.chat.id)
+            await self.message_manager.delete_last_bot_message(
+                state, bot, callback.message.chat.id
+            )
 
             # Отправляем расписание
             sent = await callback.message.answer_photo(
@@ -877,19 +990,23 @@ class ScheduleBot:
             await callback.message.answer(text, reply_markup=kb)
             await callback.answer()
 
-    async def choose_another_date(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+    async def choose_another_date(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot
+    ):
         """Выбор другой даты"""
-        response = '📅 Выберите дату:'
+        response = "📅 Выберите дату:"
         await self.message_manager.send_bot_message(
-            callback,
-            response,
-            self.keyboard_manager.date_choose_keyboard(),
-            bot,
-            state
+            callback, response, self.keyboard_manager.date_choose_keyboard(), bot, state
         )
         await callback.answer()
 
-    async def cancel_handler(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None):
+    async def cancel_handler(
+        self,
+        callback: types.CallbackQuery,
+        state: FSMContext,
+        bot: Bot,
+        db_user: User = None,
+    ):
         """Отмена и возврат в главное меню"""
         await state.clear()
 
@@ -903,18 +1020,19 @@ class ScheduleBot:
             inline_keyboard = self.keyboard_manager.main_menu_keyboard()
         else:
             # Если группы нет - предлагаем выбрать
-            response = (
-                "🏠 Главное меню\n\n"
-                "Чтобы начать, выберите свое направление!"
-            )
+            response = "🏠 Главное меню\n\n" "Чтобы начать, выберите свое направление!"
             inline_keyboard = self.keyboard_manager.faculties_choose_keyboard()
 
-        await self.message_manager.send_bot_message(callback, response, inline_keyboard, bot, state)
+        await self.message_manager.send_bot_message(
+            callback, response, inline_keyboard, bot, state
+        )
         await callback.answer()
 
     # ========== ЗАГРУЗКА РАСПИСАНИЯ (АДМИН) ==========
 
-    async def prepare_schedule_start(self, message: types.Message, state: FSMContext, bot: Bot):
+    async def prepare_schedule_start(
+        self, message: types.Message, state: FSMContext, bot: Bot
+    ):
         """Начало загрузки расписания (только для админа)"""
         # Проверка прав админа
         if str(message.from_user.id) != ADMIN_ID:
@@ -926,17 +1044,22 @@ class ScheduleBot:
 
         builder = InlineKeyboardBuilder()
         for group in groups:
-            builder.add(types.InlineKeyboardButton(
-                text=group.group_name,
-                callback_data=f"g_{group.group_id}"
-            ))
+            builder.add(
+                types.InlineKeyboardButton(
+                    text=group.group_name, callback_data=f"g_{group.group_id}"
+                )
+            )
         builder.adjust(4)
         kb = builder.as_markup()
 
-        await self.message_manager.send_bot_message(message, "Выберите группу:", kb, bot, state)
+        await self.message_manager.send_bot_message(
+            message, "Выберите группу:", kb, bot, state
+        )
         await state.set_state(ScheduleFSM.choosing_group)
 
-    async def choose_group(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+    async def choose_group(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot
+    ):
         """Выбор группы для загрузки расписания"""
         group_id = int(callback.data[2:])
 
@@ -947,28 +1070,30 @@ class ScheduleBot:
 
         # Клавиатура месяца
         now = datetime.now()
-        current_month = now.strftime('%B')
+        current_month = now.strftime("%B")
         next_month_num = (now.month % 12) + 1
-        next_month = datetime(2000, next_month_num, 1).strftime('%B')
+        next_month = datetime(2000, next_month_num, 1).strftime("%B")
 
         builder = InlineKeyboardBuilder()
         builder.add(
-            types.InlineKeyboardButton(text=f"Текущий ({current_month})", callback_data=f"m_{now.month}"),
-            types.InlineKeyboardButton(text=f"Следующий ({next_month})", callback_data=f"m_{next_month_num}")
+            types.InlineKeyboardButton(
+                text=f"Текущий ({current_month})", callback_data=f"m_{now.month}"
+            ),
+            types.InlineKeyboardButton(
+                text=f"Следующий ({next_month})", callback_data=f"m_{next_month_num}"
+            ),
         )
         builder.adjust(2)
 
         await self.message_manager.send_bot_message(
-            callback,
-            "Выберите месяц:",
-            builder.as_markup(),
-            bot,
-            state
+            callback, "Выберите месяц:", builder.as_markup(), bot, state
         )
         await state.set_state(ScheduleFSM.choosing_month)
         await callback.answer()
 
-    async def choose_month(self, callback: types.CallbackQuery, state: FSMContext, bot: Bot):
+    async def choose_month(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot
+    ):
         """Выбор месяца для загрузки расписания"""
         month_num = int(callback.data[2:])
         month_name = datetime(2000, month_num, 1).strftime("%B")
@@ -979,12 +1104,14 @@ class ScheduleBot:
             f"📎 Загрузите файл .doc/.docx с расписанием для месяца <b>{month_name}</b>",
             None,
             bot,
-            state
+            state,
         )
         await state.set_state(ScheduleFSM.waiting_for_file)
         await callback.answer()
 
-    async def schedule_file_uploaded(self, message: types.Message, state: FSMContext, bot: Bot):
+    async def schedule_file_uploaded(
+        self, message: types.Message, state: FSMContext, bot: Bot
+    ):
         """Обработка загруженного файла расписания"""
         data = await state.get_data()
         group_name = data["group_name"]

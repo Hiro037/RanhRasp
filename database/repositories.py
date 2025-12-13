@@ -3,17 +3,18 @@ Data Access Layer (Репозитории) для работы с БД
 
 Изолирует бизнес-логику от деталей работы с БД
 """
-from datetime import datetime, date, timedelta
-from typing import Optional, List, Sequence
 
-from sqlalchemy import select, update, delete, func, and_, or_
+from datetime import date, datetime, timedelta
+from typing import List, Optional, Sequence
+
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from database.models import User, UserRequest, Group, Teacher, Subject, Lesson
-
+from database.models import Group, Lesson, Subject, Teacher, User, UserRequest
 
 # ========== USER REPOSITORY ==========
+
 
 class UserRepository:
     """Репозиторий для работы с пользователями"""
@@ -33,17 +34,15 @@ class UserRepository:
     async def get_by_id(self, id: int) -> Optional[User]:
         """Получить пользователя по внутреннему ID"""
         result = await self.session.execute(
-            select(User)
-            .where(User.id == id)
-            .options(selectinload(User.group))
+            select(User).where(User.id == id).options(selectinload(User.group))
         )
         return result.scalar_one_or_none()
 
     async def create(
-            self,
-            user_id: int,
-            username: Optional[str] = None,
-            group_id: Optional[int] = None
+        self,
+        user_id: int,
+        username: Optional[str] = None,
+        group_id: Optional[int] = None,
     ) -> User:
         """Создать нового пользователя"""
         user = User(
@@ -52,7 +51,7 @@ class UserRepository:
             group_id=group_id,
             created_at=datetime.now(),
             last_activity=datetime.now(),
-            total_requests=0
+            total_requests=0,
         )
         self.session.add(user)
         await self.session.flush()
@@ -60,9 +59,7 @@ class UserRepository:
         return user
 
     async def get_or_create(
-            self,
-            user_id: int,
-            username: Optional[str] = None
+        self, user_id: int, username: Optional[str] = None
     ) -> tuple[User, bool]:
         """
         Получить существующего или создать нового пользователя
@@ -81,7 +78,9 @@ class UserRepository:
         user = await self.create(user_id, username)
         return user, True
 
-    async def update_group(self, user_id: int, group_id: Optional[int]) -> Optional[User]:
+    async def update_group(
+        self, user_id: int, group_id: Optional[int]
+    ) -> Optional[User]:
         """Обновить группу пользователя"""
         user = await self.get_by_telegram_id(user_id)
         if user:
@@ -96,8 +95,7 @@ class UserRepository:
             update(User)
             .where(User.user_id == user_id)
             .values(
-                last_activity=datetime.now(),
-                total_requests=User.total_requests + 1
+                last_activity=datetime.now(), total_requests=User.total_requests + 1
             )
         )
 
@@ -124,9 +122,7 @@ class UserRepository:
 
     async def count_total(self) -> int:
         """Получить общее количество пользователей"""
-        result = await self.session.execute(
-            select(func.count()).select_from(User)
-        )
+        result = await self.session.execute(select(func.count()).select_from(User))
         return result.scalar_one()
 
     async def count_active(self, days: int = 7) -> int:
@@ -142,6 +138,7 @@ class UserRepository:
 
 # ========== USER REQUEST REPOSITORY ==========
 
+
 class UserRequestRepository:
     """Репозиторий для работы с запросами пользователей"""
 
@@ -149,13 +146,13 @@ class UserRequestRepository:
         self.session = session
 
     async def create(
-            self,
-            user_id: int,  # внутренний ID User
-            request_type: str,
-            request_data: Optional[str] = None,
-            group_snapshot: Optional[str] = None,
-            telegram_id: Optional[int] = None,
-            username: Optional[str] = None,
+        self,
+        user_id: int,  # внутренний ID User
+        request_type: str,
+        request_data: Optional[str] = None,
+        group_snapshot: Optional[str] = None,
+        telegram_id: Optional[int] = None,
+        username: Optional[str] = None,
     ) -> UserRequest:
         """Создать запись о запросе пользователя"""
         request = UserRequest(
@@ -165,16 +162,14 @@ class UserRequestRepository:
             group_snapshot=group_snapshot,
             telegram_id=telegram_id,
             username=username,
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
         self.session.add(request)
         await self.session.flush()
         return request
 
     async def get_user_requests(
-            self,
-            user_id: int,
-            limit: int = 50
+        self, user_id: int, limit: int = 50
     ) -> Sequence[UserRequest]:
         """Получить последние запросы пользователя"""
         result = await self.session.execute(
@@ -186,9 +181,7 @@ class UserRequestRepository:
         return result.scalars().all()
 
     async def get_by_type(
-            self,
-            request_type: str,
-            days: int = 7
+        self, request_type: str, days: int = 7
     ) -> Sequence[UserRequest]:
         """Получить запросы определенного типа за последние N дней"""
         threshold = datetime.now() - timedelta(days=days)
@@ -197,7 +190,7 @@ class UserRequestRepository:
             .where(
                 and_(
                     UserRequest.request_type == request_type,
-                    UserRequest.timestamp >= threshold
+                    UserRequest.timestamp >= threshold,
                 )
             )
             .order_by(UserRequest.timestamp.desc())
@@ -208,10 +201,7 @@ class UserRequestRepository:
         """Получить статистику по типам запросов"""
         threshold = datetime.now() - timedelta(days=days)
         result = await self.session.execute(
-            select(
-                UserRequest.request_type,
-                func.count(UserRequest.id).label('count')
-            )
+            select(UserRequest.request_type, func.count(UserRequest.id).label("count"))
             .where(UserRequest.timestamp >= threshold)
             .group_by(UserRequest.request_type)
             .order_by(func.count(UserRequest.id).desc())
@@ -220,6 +210,7 @@ class UserRequestRepository:
 
 
 # ========== GROUP REPOSITORY ==========
+
 
 class GroupRepository:
     """Репозиторий для работы с группами"""
@@ -239,16 +230,13 @@ class GroupRepository:
     async def get_by_name(self, group_name: str) -> Optional[Group]:
         """Получить группу по имени"""
         result = await self.session.execute(
-            select(Group)
-            .where(Group.group_name == group_name)
+            select(Group).where(Group.group_name == group_name)
         )
         return result.scalar_one_or_none()
 
     async def get_all(self) -> Sequence[Group]:
         """Получить все группы"""
-        result = await self.session.execute(
-            select(Group).order_by(Group.group_name)
-        )
+        result = await self.session.execute(select(Group).order_by(Group.group_name))
         return result.scalars().all()
 
     async def create(self, group_name: str) -> Group:
@@ -278,6 +266,7 @@ class GroupRepository:
 
 # ========== LESSON REPOSITORY ==========
 
+
 class LessonRepository:
     """Репозиторий для работы с занятиями"""
 
@@ -292,15 +281,13 @@ class LessonRepository:
             .options(
                 selectinload(Lesson.group),
                 selectinload(Lesson.teacher),
-                selectinload(Lesson.subject)
+                selectinload(Lesson.subject),
             )
         )
         return result.scalar_one_or_none()
 
     async def get_by_group_and_date(
-            self,
-            group_id: int,
-            target_date: date
+        self, group_id: int, target_date: date
     ) -> Sequence[Lesson]:
         """Получить занятия группы на конкретную дату"""
         start_datetime = datetime.combine(target_date, datetime.min.time())
@@ -312,23 +299,20 @@ class LessonRepository:
                 and_(
                     Lesson.group_id == group_id,
                     Lesson.start_datetime >= start_datetime,
-                    Lesson.start_datetime <= end_datetime
+                    Lesson.start_datetime <= end_datetime,
                 )
             )
             .options(
                 selectinload(Lesson.teacher),
                 selectinload(Lesson.subject),
-                selectinload(Lesson.group)
+                selectinload(Lesson.group),
             )
             .order_by(Lesson.start_datetime)
         )
         return result.scalars().all()
 
     async def get_by_group_and_range(
-            self,
-            group_id: int,
-            start_date: date,
-            end_date: date
+        self, group_id: int, start_date: date, end_date: date
     ) -> Sequence[Lesson]:
         """Получить занятия группы за период"""
         start_datetime = datetime.combine(start_date, datetime.min.time())
@@ -340,27 +324,27 @@ class LessonRepository:
                 and_(
                     Lesson.group_id == group_id,
                     Lesson.start_datetime >= start_datetime,
-                    Lesson.start_datetime <= end_datetime
+                    Lesson.start_datetime <= end_datetime,
                 )
             )
             .options(
                 selectinload(Lesson.teacher),
                 selectinload(Lesson.subject),
-                selectinload(Lesson.group)
+                selectinload(Lesson.group),
             )
             .order_by(Lesson.start_datetime)
         )
         return result.scalars().all()
 
     async def create(
-            self,
-            start_datetime: datetime,
-            end_datetime: datetime,
-            group_id: int,
-            teacher_id: int,
-            subject_id: int,
-            classroom: str,
-            lesson_type: Optional[str] = None
+        self,
+        start_datetime: datetime,
+        end_datetime: datetime,
+        group_id: int,
+        teacher_id: int,
+        subject_id: int,
+        classroom: str,
+        lesson_type: Optional[str] = None,
     ) -> Lesson:
         """Создать новое занятие"""
         lesson = Lesson(
@@ -370,7 +354,7 @@ class LessonRepository:
             teacher_id=teacher_id,
             subject_id=subject_id,
             classroom=classroom,
-            lesson_type=lesson_type
+            lesson_type=lesson_type,
         )
         self.session.add(lesson)
         await self.session.flush()
@@ -378,22 +362,18 @@ class LessonRepository:
         return lesson
 
     async def delete_by_group_and_range(
-            self,
-            group_id: int,
-            start_date: date,
-            end_date: date
+        self, group_id: int, start_date: date, end_date: date
     ) -> int:
         """Удалить занятия группы за период (для обновления расписания)"""
         start_datetime = datetime.combine(start_date, datetime.min.time())
         end_datetime = datetime.combine(end_date, datetime.max.time())
 
         result = await self.session.execute(
-            delete(Lesson)
-            .where(
+            delete(Lesson).where(
                 and_(
                     Lesson.group_id == group_id,
                     Lesson.start_datetime >= start_datetime,
-                    Lesson.start_datetime <= end_datetime
+                    Lesson.start_datetime <= end_datetime,
                 )
             )
         )
@@ -401,6 +381,7 @@ class LessonRepository:
 
 
 # ========== TEACHER REPOSITORY ==========
+
 
 class TeacherRepository:
     """Репозиторий для работы с преподавателями"""
@@ -417,23 +398,16 @@ class TeacherRepository:
 
     async def get_by_name(self, name: str) -> Optional[Teacher]:
         """Получить преподавателя по имени"""
-        result = await self.session.execute(
-            select(Teacher).where(Teacher.name == name)
-        )
+        result = await self.session.execute(select(Teacher).where(Teacher.name == name))
         return result.scalar_one_or_none()
 
     async def get_all(self) -> Sequence[Teacher]:
         """Получить всех преподавателей"""
-        result = await self.session.execute(
-            select(Teacher).order_by(Teacher.name)
-        )
+        result = await self.session.execute(select(Teacher).order_by(Teacher.name))
         return result.scalars().all()
 
     async def create(
-            self,
-            name: str,
-            email: Optional[str] = None,
-            phone: Optional[str] = None
+        self, name: str, email: Optional[str] = None, phone: Optional[str] = None
     ) -> Teacher:
         """Создать нового преподавателя"""
         teacher = Teacher(name=name, email=email, phone=phone)
@@ -453,6 +427,7 @@ class TeacherRepository:
 
 # ========== SUBJECT REPOSITORY ==========
 
+
 class SubjectRepository:
     """Репозиторий для работы с предметами"""
 
@@ -468,16 +443,12 @@ class SubjectRepository:
 
     async def get_by_name(self, name: str) -> Optional[Subject]:
         """Получить предмет по названию"""
-        result = await self.session.execute(
-            select(Subject).where(Subject.name == name)
-        )
+        result = await self.session.execute(select(Subject).where(Subject.name == name))
         return result.scalar_one_or_none()
 
     async def get_all(self) -> Sequence[Subject]:
         """Получить все предметы"""
-        result = await self.session.execute(
-            select(Subject).order_by(Subject.name)
-        )
+        result = await self.session.execute(select(Subject).order_by(Subject.name))
         return result.scalars().all()
 
     async def create(self, name: str) -> Subject:
@@ -499,6 +470,7 @@ class SubjectRepository:
 
 # ========== UNIT OF WORK PATTERN ==========
 
+
 class UnitOfWork:
     """
     Unit of Work паттерн для управления транзакциями
@@ -515,6 +487,7 @@ class UnitOfWork:
 
     async def __aenter__(self):
         from database.models import async_session_maker
+
         self.session = async_session_maker()
 
         # Создаем репозитории

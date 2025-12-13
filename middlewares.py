@@ -1,10 +1,11 @@
 """
 Middleware для логирования активности пользователей
 """
-from typing import Callable, Dict, Any, Awaitable
+
+from typing import Any, Awaitable, Callable, Dict
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 
 from database.repositories import UnitOfWork
 
@@ -19,19 +20,18 @@ class UserActivityMiddleware(BaseMiddleware):
     """
 
     async def __call__(
-            self,
-            handler: Callable[[Message | CallbackQuery, Dict[str, Any]], Awaitable[Any]],
-            event: Message | CallbackQuery,
-            data: Dict[str, Any]
+        self,
+        handler: Callable[[Message | CallbackQuery, Dict[str, Any]], Awaitable[Any]],
+        event: Message | CallbackQuery,
+        data: Dict[str, Any],
     ) -> Any:
-        user_obj = data.get('event_from_user')
+        user_obj = data.get("event_from_user")
 
         if user_obj:
             async with UnitOfWork() as uow:
                 # Получаем или создаем пользователя
                 user, created = await uow.users.get_or_create(
-                    user_id=user_obj.id,
-                    username=user_obj.username
+                    user_id=user_obj.id, username=user_obj.username
                 )
 
                 # Определяем тип события
@@ -65,7 +65,7 @@ class UserActivityMiddleware(BaseMiddleware):
                 await uow.commit()
 
                 # Добавляем пользователя в data для обработчиков
-                data['db_user'] = user
+                data["db_user"] = user
 
         return await handler(event, data)
 
@@ -78,14 +78,14 @@ class GroupSelectionMiddleware(BaseMiddleware):
     """
 
     async def __call__(
-            self,
-            handler: Callable[[Message | CallbackQuery, Dict[str, Any]], Awaitable[Any]],
-            event: Message | CallbackQuery,
-            data: Dict[str, Any]
+        self,
+        handler: Callable[[Message | CallbackQuery, Dict[str, Any]], Awaitable[Any]],
+        event: Message | CallbackQuery,
+        data: Dict[str, Any],
     ) -> Any:
-        db_user = data.get('db_user')
+        db_user = data.get("db_user")
 
         if db_user and db_user.group:
-            data['user_group'] = db_user.group
+            data["user_group"] = db_user.group
 
         return await handler(event, data)

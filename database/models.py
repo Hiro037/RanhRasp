@@ -1,13 +1,15 @@
 """
 Асинхронные модели для основной БД
 """
+
 import os
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 
 from dotenv import load_dotenv
-from sqlalchemy import String, ForeignKey, DateTime, Text, BigInteger
-from sqlalchemy.ext.asyncio import AsyncAttrs, create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text
+from sqlalchemy.ext.asyncio import (AsyncAttrs, AsyncSession,
+                                    async_sessionmaker, create_async_engine)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 load_dotenv()
@@ -19,12 +21,15 @@ DB_URL = os.getenv("DB_URL")
 # Для PostgreSQL: postgresql+asyncpg://
 # Для MySQL: mysql+aiomysql://
 
+
 class Base(AsyncAttrs, DeclarativeBase):
     """Базовая модель с async поддержкой"""
+
     pass
 
 
 # ========== МОДЕЛЬ ПОЛЬЗОВАТЕЛЯ (НОВАЯ!) ==========
+
 
 class User(Base):
     """
@@ -32,53 +37,40 @@ class User(Base):
 
     Хранит информацию о пользователях и их взаимодействии с ботом
     """
-    __tablename__ = 'users'
+
+    __tablename__ = "users"
 
     # Основные поля
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
-        BigInteger,
-        unique=True,
-        nullable=False,
-        index=True,
-        comment="Telegram user ID"
+        BigInteger, unique=True, nullable=False, index=True, comment="Telegram user ID"
     )
     username: Mapped[Optional[str]] = mapped_column(
-        String(255),
-        nullable=True,
-        comment="Telegram username"
+        String(255), nullable=True, comment="Telegram username"
     )
 
     # Группа пользователя (связь с Group)
     group_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey('groups.group_id', ondelete='SET NULL'),
+        ForeignKey("groups.group_id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        comment="Группа пользователя"
+        comment="Группа пользователя",
     )
     group: Mapped[Optional["Group"]] = relationship(
-        "Group",
-        back_populates="students",
-        lazy="selectin"
+        "Group", back_populates="students", lazy="selectin"
     )
 
     # Метаданные
     created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.now,
-        nullable=False
+        DateTime, default=datetime.now, nullable=False
     )
     last_activity: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.now,
-        onupdate=datetime.now,
-        nullable=False
+        DateTime, default=datetime.now, onupdate=datetime.now, nullable=False
     )
 
     # Статистика
     total_requests: Mapped[int] = mapped_column(
-        default=0,
-        comment="Общее количество запросов"
+        default=0, comment="Общее количество запросов"
     )
 
     # Связь с запросами пользователя
@@ -86,7 +78,7 @@ class User(Base):
         "UserRequest",
         back_populates="user",
         cascade="all, delete-orphan",
-        lazy="selectin"
+        lazy="selectin",
     )
 
     def __repr__(self):
@@ -95,40 +87,34 @@ class User(Base):
 
 # ========== МОДЕЛЬ ЗАПРОСОВ ПОЛЬЗОВАТЕЛЯ (НОВАЯ!) ==========
 
+
 class UserRequest(Base):
     """
     Модель запросов пользователей к боту
     Логирует все взаимодействия пользователей
     """
-    __tablename__ = 'user_requests'
+
+    __tablename__ = "user_requests"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
     # Связь с пользователем (ТОЛЬКО ОДИН FK!)
     user_id: Mapped[int] = mapped_column(
-        ForeignKey('users.id', ondelete='CASCADE'),
-        nullable=False,
-        index=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     # Снапшот данных пользователя на момент запроса (БЕЗ FK)
     telegram_id: Mapped[int] = mapped_column(
-        BigInteger,
-        index=True,
-        comment="Telegram ID пользователя (снапшот)"
+        BigInteger, index=True, comment="Telegram ID пользователя (снапшот)"
     )
 
     username: Mapped[Optional[str]] = mapped_column(
-        String(255),
-        nullable=True,
-        comment="Username пользователя (снапшот)"
+        String(255), nullable=True, comment="Username пользователя (снапшот)"
     )
 
     # Упрощённый relationship
     user: Mapped["User"] = relationship(
-        "User",
-        back_populates="requests",
-        lazy="selectin"
+        "User", back_populates="requests", lazy="selectin"
     )
 
     # Данные запроса
@@ -136,26 +122,19 @@ class UserRequest(Base):
         String(50),
         nullable=False,
         index=True,
-        comment="Тип запроса: command, callback, schedule_view, etc."
+        comment="Тип запроса: command, callback, schedule_view, etc.",
     )
 
     request_data: Mapped[Optional[str]] = mapped_column(
-        Text,
-        nullable=True,
-        comment="Текст запроса или JSON с данными"
+        Text, nullable=True, comment="Текст запроса или JSON с данными"
     )
 
     group_snapshot: Mapped[Optional[str]] = mapped_column(
-        String(50),
-        nullable=True,
-        comment="Группа пользователя на момент запроса"
+        String(50), nullable=True, comment="Группа пользователя на момент запроса"
     )
 
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.now,
-        nullable=False,
-        index=True
+        DateTime, default=datetime.now, nullable=False, index=True
     )
 
     def __repr__(self):
@@ -164,33 +143,27 @@ class UserRequest(Base):
 
 # ========== СУЩЕСТВУЮЩИЕ МОДЕЛИ (ОБНОВЛЕННЫЕ) ==========
 
+
 class Group(Base):
     """
     Модель учебной группы
     """
-    __tablename__ = 'groups'
+
+    __tablename__ = "groups"
 
     group_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     group_name: Mapped[str] = mapped_column(
-        String(50),
-        unique=True,
-        nullable=False,
-        index=True
+        String(50), unique=True, nullable=False, index=True
     )
 
     # Связь со студентами (новая!)
     students: Mapped[List["User"]] = relationship(
-        "User",
-        back_populates="group",
-        lazy="selectin"
+        "User", back_populates="group", lazy="selectin"
     )
 
     # Связь с занятиями
     lessons: Mapped[List["Lesson"]] = relationship(
-        "Lesson",
-        back_populates="group",
-        cascade="all, delete-orphan",
-        lazy="selectin"
+        "Lesson", back_populates="group", cascade="all, delete-orphan", lazy="selectin"
     )
 
     def __repr__(self):
@@ -201,14 +174,12 @@ class Teacher(Base):
     """
     Модель преподавателя
     """
-    __tablename__ = 'teachers'
+
+    __tablename__ = "teachers"
 
     teacher_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(
-        String(255),
-        unique=True,
-        nullable=False,
-        index=True
+        String(255), unique=True, nullable=False, index=True
     )
 
     # Потенциал для расширения
@@ -217,9 +188,7 @@ class Teacher(Base):
 
     # Связь с занятиями
     lessons: Mapped[List["Lesson"]] = relationship(
-        "Lesson",
-        back_populates="teacher",
-        lazy="selectin"
+        "Lesson", back_populates="teacher", lazy="selectin"
     )
 
     def __repr__(self):
@@ -230,21 +199,17 @@ class Subject(Base):
     """
     Модель учебного предмета
     """
-    __tablename__ = 'subjects'
+
+    __tablename__ = "subjects"
 
     subject_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(
-        String(255),
-        unique=True,
-        nullable=False,
-        index=True
+        String(255), unique=True, nullable=False, index=True
     )
 
     # Связь с занятиями
     lessons: Mapped[List["Lesson"]] = relationship(
-        "Lesson",
-        back_populates="subject",
-        lazy="selectin"
+        "Lesson", back_populates="subject", lazy="selectin"
     )
 
     def __repr__(self):
@@ -255,50 +220,49 @@ class Lesson(Base):
     """
     Модель занятия
     """
-    __tablename__ = 'lessons'
+
+    __tablename__ = "lessons"
 
     lesson_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
     # Временные параметры
     start_datetime: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        index=True
+        DateTime, nullable=False, index=True
     )
-    end_datetime: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        index=True
-    )
+    end_datetime: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
 
     # Связи с другими сущностями
     group_id: Mapped[int] = mapped_column(
-        ForeignKey('groups.group_id', ondelete='CASCADE'),
-        nullable=False,
-        index=True
+        ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=False, index=True
     )
-    group: Mapped["Group"] = relationship("Group", back_populates="lessons", lazy="selectin")
+    group: Mapped["Group"] = relationship(
+        "Group", back_populates="lessons", lazy="selectin"
+    )
 
     teacher_id: Mapped[int] = mapped_column(
-        ForeignKey('teachers.teacher_id', ondelete='CASCADE'),
+        ForeignKey("teachers.teacher_id", ondelete="CASCADE"),
         nullable=False,
-        index=True
+        index=True,
     )
-    teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="lessons", lazy="selectin")
+    teacher: Mapped["Teacher"] = relationship(
+        "Teacher", back_populates="lessons", lazy="selectin"
+    )
 
     subject_id: Mapped[int] = mapped_column(
-        ForeignKey('subjects.subject_id', ondelete='CASCADE'),
+        ForeignKey("subjects.subject_id", ondelete="CASCADE"),
         nullable=False,
-        index=True
+        index=True,
     )
-    subject: Mapped["Subject"] = relationship("Subject", back_populates="lessons", lazy="selectin")
+    subject: Mapped["Subject"] = relationship(
+        "Subject", back_populates="lessons", lazy="selectin"
+    )
 
     # Дополнительные данные
-    classroom: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="Не указана")
+    classroom: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, default="Не указана"
+    )
     lesson_type: Mapped[Optional[str]] = mapped_column(
-        String(50),
-        nullable=True,
-        comment="Лекция, семинар, практика и т.д."
+        String(50), nullable=True, comment="Лекция, семинар, практика и т.д."
     )
 
     def __repr__(self):
@@ -315,7 +279,7 @@ engine = create_async_engine(
     pool_size=10,  # Размер пула соединений
     max_overflow=20,  # Максимальное количество дополнительных соединений
     pool_pre_ping=True,  # Проверка соединения перед использованием
-    pool_recycle=3600  # Переиспользование соединений (1 час)
+    pool_recycle=3600,  # Переиспользование соединений (1 час)
 )
 
 # Создание фабрики асинхронных сессий
@@ -323,11 +287,12 @@ async_session_maker = async_sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False,  # Не удалять объекты из сессии после коммита
-    autoflush=False  # Контролируем flush вручную
+    autoflush=False,  # Контролируем flush вручную
 )
 
 
 # ========== ИНИЦИАЛИЗАЦИЯ БД ==========
+
 
 async def init_db():
     """
@@ -344,6 +309,7 @@ async def init_db():
 
 
 # ========== DEPENDENCY INJECTION ==========
+
 
 async def get_session() -> AsyncSession:
     """

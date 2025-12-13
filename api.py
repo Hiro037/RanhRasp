@@ -8,29 +8,26 @@
 - Админ-панель через HTML шаблоны
 - Полная асинхронность с использованием UnitOfWork паттерна
 """
-import os
-from datetime import datetime, timedelta, date
-from typing import Optional, List
-from pathlib import Path
 
-from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File, Query, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
+import os
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import List, Optional
+
+from fastapi import (Depends, FastAPI, File, Form, HTTPException, Query,
+                     Request, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from database.models import User, Group, Teacher, Subject, Lesson, get_session
+from database.models import Group, Lesson, Subject, Teacher, User, get_session
 from database.repositories import UnitOfWork
-from test_parse import (
-    parse_docx_schedule,
-    import_schedule_to_db_async,
-    convert_doc_to_docx,
-    validate_schedule_file,
-    print_schedule_summary
-)
-from fastapi.responses import JSONResponse
+from test_parse import (convert_doc_to_docx, import_schedule_to_db_async,
+                        parse_docx_schedule, print_schedule_summary,
+                        validate_schedule_file)
 
 # ========== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ ==========
 
@@ -39,7 +36,7 @@ app = FastAPI(
     description="API для управления расписанием учебных занятий",
     version="2.0.0",
     docs_url="/api/docs",
-    redoc_url="/api/redoc"
+    redoc_url="/api/redoc",
 )
 
 # Настройка CORS
@@ -66,6 +63,7 @@ if os.path.exists("static"):
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 
+
 def format_datetime(dt: datetime) -> str:
     """Форматирование datetime для шаблонов"""
     return dt.strftime("%d.%m.%Y %H:%M")
@@ -77,13 +75,13 @@ def format_date(d: date) -> str:
 
 
 # Добавляем функции в контекст шаблонов
-templates.env.globals.update({
-    'format_datetime': format_datetime,
-    'format_date': format_date
-})
+templates.env.globals.update(
+    {"format_datetime": format_datetime, "format_date": format_date}
+)
 
 
 # ========== ГЛАВНАЯ СТРАНИЦА ==========
+
 
 @app.get("/", response_class=HTMLResponse, tags=["Web UI"])
 async def index(request: Request):
@@ -107,7 +105,7 @@ async def index(request: Request):
             .options(
                 selectinload(Lesson.group),
                 selectinload(Lesson.teacher),
-                selectinload(Lesson.subject)
+                selectinload(Lesson.subject),
             )
             .order_by(Lesson.start_datetime.desc())
             .limit(100)
@@ -118,27 +116,28 @@ async def index(request: Request):
         total_users = await uow.users.count_total()
         active_users = await uow.users.count_active(days=7)
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "groups": groups,
-        "teachers": teachers,
-        "subjects": subjects,
-        "lessons": lessons,
-        "total_users": total_users,
-        "active_users": active_users
-    })
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "groups": groups,
+            "teachers": teachers,
+            "subjects": subjects,
+            "lessons": lessons,
+            "total_users": total_users,
+            "active_users": active_users,
+        },
+    )
 
 
 # ========== API ЭНДПОИНТЫ - ИНФОРМАЦИЯ ==========
 
+
 @app.get("/api/health", tags=["System"])
 async def health_check():
     """Проверка здоровья API"""
-    return {
-        "status": "ok",
-        "version": "2.0.0",
-        "timestamp": datetime.now().isoformat()
-    }
+    return {"status": "ok", "version": "2.0.0", "timestamp": datetime.now().isoformat()}
+
 
 @app.get("/api/stats", tags=["Statistics"])
 async def get_statistics():
@@ -169,8 +168,12 @@ async def get_statistics():
             },
             "requests": {
                 # Преобразуем к простым типам
-                "total": sum(int(count) for _, count in requests_data) if isinstance(requests_data, list) else 0
-            }
+                "total": (
+                    sum(int(count) for _, count in requests_data)
+                    if isinstance(requests_data, list)
+                    else 0
+                )
+            },
         }
 
     return JSONResponse(content=stats)
@@ -178,24 +181,24 @@ async def get_statistics():
 
 # ========== ЗАГРУЗКА РАСПИСАНИЯ ==========
 
+
 @app.get("/upload-schedule", response_class=HTMLResponse, tags=["Web UI"])
 async def upload_schedule_form(request: Request):
     """Форма для загрузки расписания"""
     async with UnitOfWork() as uow:
         groups = await uow.groups.get_all()
 
-    return templates.TemplateResponse("upload_schedule.html", {
-        "request": request,
-        "groups": groups
-    })
+    return templates.TemplateResponse(
+        "upload_schedule.html", {"request": request, "groups": groups}
+    )
 
 
 @app.post("/upload-schedule", response_class=HTMLResponse, tags=["Web UI"])
 async def upload_schedule(
-        request: Request,
-        group_id: int = Form(...),
-        file: UploadFile = File(...),
-        replace_existing: bool = Form(False)
+    request: Request,
+    group_id: int = Form(...),
+    file: UploadFile = File(...),
+    replace_existing: bool = Form(False),
 ):
     """
     Загрузка и парсинг расписания из файла
@@ -212,10 +215,10 @@ async def upload_schedule(
             raise HTTPException(status_code=404, detail="Группа не найдена")
 
         # Проверяем расширение файла
-        if not file.filename.lower().endswith(('.doc', '.docx')):
+        if not file.filename.lower().endswith((".doc", ".docx")):
             raise HTTPException(
                 status_code=400,
-                detail="Неподдерживаемый формат. Используйте .doc или .docx"
+                detail="Неподдерживаемый формат. Используйте .doc или .docx",
             )
 
         # Создаем папку для файлов если её нет
@@ -231,7 +234,7 @@ async def upload_schedule(
 
         try:
             # Конвертируем .doc в .docx если нужно
-            if file.filename.lower().endswith('.doc'):
+            if file.filename.lower().endswith(".doc"):
                 file_path = Path(convert_doc_to_docx(str(file_path)))
 
             # Парсим расписание
@@ -240,7 +243,7 @@ async def upload_schedule(
             if not lessons:
                 raise HTTPException(
                     status_code=400,
-                    detail="Не удалось распарсить расписание. Проверьте формат файла."
+                    detail="Не удалось распарсить расписание. Проверьте формат файла.",
                 )
 
             # Получаем диапазон дат
@@ -251,9 +254,7 @@ async def upload_schedule(
             # Удаляем существующие занятия если нужно
             if replace_existing:
                 deleted_count = await uow.lessons.delete_by_group_and_range(
-                    group.group_id,
-                    min_date,
-                    max_date
+                    group.group_id, min_date, max_date
                 )
                 print(f"🗑 Удалено старых занятий: {deleted_count}")
 
@@ -261,29 +262,32 @@ async def upload_schedule(
             imported_count = await import_schedule_to_db_async(lessons, uow)
             await uow.commit()
 
-            return templates.TemplateResponse("upload_success.html", {
-                "request": request,
-                "group": group,
-                "lessons_count": imported_count,
-                "date_from": format_date(min_date),
-                "date_to": format_date(max_date)
-            })
+            return templates.TemplateResponse(
+                "upload_success.html",
+                {
+                    "request": request,
+                    "group": group,
+                    "lessons_count": imported_count,
+                    "date_from": format_date(min_date),
+                    "date_to": format_date(max_date),
+                },
+            )
 
         except Exception as e:
             await uow.rollback()
             print(f"❌ Ошибка обработки файла: {e}")
             raise HTTPException(
-                status_code=500,
-                detail=f"Ошибка обработки файла: {str(e)}"
+                status_code=500, detail=f"Ошибка обработки файла: {str(e)}"
             )
 
 
 # ========== API - РАСПИСАНИЕ ==========
 
+
 @app.get("/api/schedule/{group_name}/{date}", tags=["Schedule"])
 async def get_schedule(
-        group_name: str,
-        date: str,  # Формат: YYYY-MM-DD
+    group_name: str,
+    date: str,  # Формат: YYYY-MM-DD
 ):
     """
     Получить расписание группы на конкретную дату
@@ -296,8 +300,7 @@ async def get_schedule(
         target_date = datetime.strptime(date, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(
-            status_code=400,
-            detail="Некорректный формат даты. Используйте YYYY-MM-DD"
+            status_code=400, detail="Некорректный формат даты. Используйте YYYY-MM-DD"
         )
 
     async with UnitOfWork() as uow:
@@ -321,14 +324,16 @@ async def get_schedule(
                 "end_time": lesson.end_datetime.strftime("%H:%M"),
             }
             for lesson in lessons
-        ]
+        ],
     }
 
 
 @app.get("/api/schedule/{group_name}/week", tags=["Schedule"])
 async def get_week_schedule(
-        group_name: str,
-        start_date: Optional[str] = Query(None, description="Дата начала недели (YYYY-MM-DD)")
+    group_name: str,
+    start_date: Optional[str] = Query(
+        None, description="Дата начала недели (YYYY-MM-DD)"
+    ),
 ):
     """Получить расписание группы на неделю"""
     if start_date:
@@ -347,9 +352,7 @@ async def get_week_schedule(
             raise HTTPException(status_code=404, detail="Группа не найдена")
 
         lessons = await uow.lessons.get_by_group_and_range(
-            group.group_id,
-            week_start,
-            week_end
+            group.group_id, week_start, week_end
         )
 
     # Группируем по дням
@@ -359,25 +362,28 @@ async def get_week_schedule(
         if day not in schedule_by_day:
             schedule_by_day[day] = []
 
-        schedule_by_day[day].append({
-            "id": lesson.lesson_id,
-            "subject": lesson.subject.name,
-            "teacher": lesson.teacher.name,
-            "classroom": lesson.classroom,
-            "lesson_type": lesson.lesson_type,
-            "start_time": lesson.start_datetime.strftime("%H:%M"),
-            "end_time": lesson.end_datetime.strftime("%H:%M"),
-        })
+        schedule_by_day[day].append(
+            {
+                "id": lesson.lesson_id,
+                "subject": lesson.subject.name,
+                "teacher": lesson.teacher.name,
+                "classroom": lesson.classroom,
+                "lesson_type": lesson.lesson_type,
+                "start_time": lesson.start_datetime.strftime("%H:%M"),
+                "end_time": lesson.end_datetime.strftime("%H:%M"),
+            }
+        )
 
     return {
         "group": group_name,
         "week_start": week_start.isoformat(),
         "week_end": week_end.isoformat(),
-        "schedule": schedule_by_day
+        "schedule": schedule_by_day,
     }
 
 
 # ========== CRUD: ГРУППЫ ==========
+
 
 @app.get("/groups", response_class=HTMLResponse, tags=["Web UI"])
 async def list_groups_page(request: Request):
@@ -385,10 +391,9 @@ async def list_groups_page(request: Request):
     async with UnitOfWork() as uow:
         groups = await uow.groups.get_all()
 
-    return templates.TemplateResponse("groups_list.html", {
-        "request": request,
-        "groups": groups
-    })
+    return templates.TemplateResponse(
+        "groups_list.html", {"request": request, "groups": groups}
+    )
 
 
 @app.get("/add-group", response_class=HTMLResponse, tags=["Web UI"])
@@ -404,7 +409,9 @@ async def add_group(group_name: str = Form(...)):
         # Проверяем, не существует ли уже
         existing = await uow.groups.get_by_name(group_name)
         if existing:
-            raise HTTPException(status_code=400, detail="Группа с таким названием уже существует")
+            raise HTTPException(
+                status_code=400, detail="Группа с таким названием уже существует"
+            )
 
         await uow.groups.create(group_name)
         await uow.commit()
@@ -428,12 +435,10 @@ async def view_group(request: Request, group_id: int):
         # Получаем студентов группы
         students = await uow.users.get_by_group(group_id)
 
-    return templates.TemplateResponse("group_detail.html", {
-        "request": request,
-        "group": group,
-        "lessons": lessons,
-        "students": students
-    })
+    return templates.TemplateResponse(
+        "group_detail.html",
+        {"request": request, "group": group, "lessons": lessons, "students": students},
+    )
 
 
 @app.get("/edit-group/{group_id}", response_class=HTMLResponse, tags=["Web UI"])
@@ -444,10 +449,9 @@ async def edit_group_form(request: Request, group_id: int):
         if not group:
             raise HTTPException(status_code=404, detail="Группа не найдена")
 
-    return templates.TemplateResponse("edit_group.html", {
-        "request": request,
-        "group": group
-    })
+    return templates.TemplateResponse(
+        "edit_group.html", {"request": request, "group": group}
+    )
 
 
 @app.post("/update-group/{group_id}", tags=["Web UI"])
@@ -476,6 +480,7 @@ async def delete_group(group_id: int):
 
 # ========== API ЭНДПОИНТЫ - ГРУППЫ ==========
 
+
 @app.get("/api/groups", tags=["Groups"])
 async def api_list_groups():
     """API: Получить список всех групп"""
@@ -486,7 +491,7 @@ async def api_list_groups():
         {
             "id": group.group_id,
             "name": group.group_name,
-            "students_count": len(group.students) if group.students else 0
+            "students_count": len(group.students) if group.students else 0,
         }
         for group in groups
     ]
@@ -504,17 +509,14 @@ async def api_get_group(group_id: int):
         "id": group.group_id,
         "name": group.group_name,
         "students": [
-            {
-                "id": student.id,
-                "user_id": student.user_id,
-                "username": student.username
-            }
+            {"id": student.id, "user_id": student.user_id, "username": student.username}
             for student in (group.students or [])
-        ]
+        ],
     }
 
 
 # ========== CRUD: ПРЕПОДАВАТЕЛИ ==========
+
 
 @app.get("/add-teacher", response_class=HTMLResponse, tags=["Web UI"])
 async def add_teacher_form(request: Request):
@@ -524,9 +526,9 @@ async def add_teacher_form(request: Request):
 
 @app.post("/add-teacher", tags=["Web UI"])
 async def add_teacher(
-        name: str = Form(...),
-        email: Optional[str] = Form(None),
-        phone: Optional[str] = Form(None)
+    name: str = Form(...),
+    email: Optional[str] = Form(None),
+    phone: Optional[str] = Form(None),
 ):
     """Создать нового преподавателя"""
     async with UnitOfWork() as uow:
@@ -551,21 +553,21 @@ async def view_teacher(request: Request, teacher_id: int):
         result = await uow.session.execute(
             select(Lesson)
             .where(Lesson.teacher_id == teacher_id)
-            .where(Lesson.start_datetime >= datetime.combine(today, datetime.min.time()))
-            .where(Lesson.start_datetime <= datetime.combine(end_date, datetime.max.time()))
-            .options(
-                selectinload(Lesson.group),
-                selectinload(Lesson.subject)
+            .where(
+                Lesson.start_datetime >= datetime.combine(today, datetime.min.time())
             )
+            .where(
+                Lesson.start_datetime <= datetime.combine(end_date, datetime.max.time())
+            )
+            .options(selectinload(Lesson.group), selectinload(Lesson.subject))
             .order_by(Lesson.start_datetime)
         )
         lessons = result.scalars().all()
 
-    return templates.TemplateResponse("teacher_detail.html", {
-        "request": request,
-        "teacher": teacher,
-        "lessons": lessons
-    })
+    return templates.TemplateResponse(
+        "teacher_detail.html",
+        {"request": request, "teacher": teacher, "lessons": lessons},
+    )
 
 
 @app.get("/edit-teacher/{teacher_id}", response_class=HTMLResponse, tags=["Web UI"])
@@ -576,18 +578,17 @@ async def edit_teacher_form(request: Request, teacher_id: int):
         if not teacher:
             raise HTTPException(status_code=404, detail="Преподаватель не найден")
 
-    return templates.TemplateResponse("edit_teacher.html", {
-        "request": request,
-        "teacher": teacher
-    })
+    return templates.TemplateResponse(
+        "edit_teacher.html", {"request": request, "teacher": teacher}
+    )
 
 
 @app.post("/update-teacher/{teacher_id}", tags=["Web UI"])
 async def update_teacher(
-        teacher_id: int,
-        name: str = Form(...),
-        email: Optional[str] = Form(None),
-        phone: Optional[str] = Form(None)
+    teacher_id: int,
+    name: str = Form(...),
+    email: Optional[str] = Form(None),
+    phone: Optional[str] = Form(None),
 ):
     """Обновить преподавателя"""
     async with UnitOfWork() as uow:
@@ -623,6 +624,7 @@ async def delete_teacher(teacher_id: int):
 
 # ========== CRUD: ПРЕДМЕТЫ ==========
 
+
 @app.get("/add-subject", response_class=HTMLResponse, tags=["Web UI"])
 async def add_subject_form(request: Request):
     """Форма добавления предмета"""
@@ -647,10 +649,9 @@ async def view_subject(request: Request, subject_id: int):
         if not subject:
             raise HTTPException(status_code=404, detail="Предмет не найден")
 
-    return templates.TemplateResponse("subject_detail.html", {
-        "request": request,
-        "subject": subject
-    })
+    return templates.TemplateResponse(
+        "subject_detail.html", {"request": request, "subject": subject}
+    )
 
 
 @app.get("/edit-subject/{subject_id}", response_class=HTMLResponse, tags=["Web UI"])
@@ -661,10 +662,9 @@ async def edit_subject_form(request: Request, subject_id: int):
         if not subject:
             raise HTTPException(status_code=404, detail="Предмет не найден")
 
-    return templates.TemplateResponse("edit_subject.html", {
-        "request": request,
-        "subject": subject
-    })
+    return templates.TemplateResponse(
+        "edit_subject.html", {"request": request, "subject": subject}
+    )
 
 
 @app.post("/update-subject/{subject_id}", tags=["Web UI"])
@@ -701,6 +701,7 @@ async def delete_subject(subject_id: int):
 
 # ========== CRUD: ЗАНЯТИЯ ==========
 
+
 @app.get("/add-lesson", response_class=HTMLResponse, tags=["Web UI"])
 async def add_lesson_form(request: Request):
     """Форма добавления занятия"""
@@ -709,22 +710,25 @@ async def add_lesson_form(request: Request):
         teachers = await uow.teachers.get_all()
         subjects = await uow.subjects.get_all()
 
-    return templates.TemplateResponse("add_lesson.html", {
-        "request": request,
-        "groups": groups,
-        "teachers": teachers,
-        "subjects": subjects
-    })
+    return templates.TemplateResponse(
+        "add_lesson.html",
+        {
+            "request": request,
+            "groups": groups,
+            "teachers": teachers,
+            "subjects": subjects,
+        },
+    )
 
 
 @app.post("/add-lesson", tags=["Web UI"])
 async def add_lesson(
-        start_datetime: str = Form(...),
-        group_id: int = Form(...),
-        teacher_id: int = Form(...),
-        classroom: str = Form(...),
-        subject_id: int = Form(...),
-        lesson_type: Optional[str] = Form(None)
+    start_datetime: str = Form(...),
+    group_id: int = Form(...),
+    teacher_id: int = Form(...),
+    classroom: str = Form(...),
+    subject_id: int = Form(...),
+    lesson_type: Optional[str] = Form(None),
 ):
     """Создать новое занятие"""
     start_dt = datetime.fromisoformat(start_datetime)
@@ -738,7 +742,7 @@ async def add_lesson(
             teacher_id=teacher_id,
             subject_id=subject_id,
             classroom=classroom,
-            lesson_type=lesson_type
+            lesson_type=lesson_type,
         )
         await uow.commit()
 
@@ -753,10 +757,9 @@ async def view_lesson(request: Request, lesson_id: int):
         if not lesson:
             raise HTTPException(status_code=404, detail="Занятие не найдено")
 
-    return templates.TemplateResponse("lesson_detail.html", {
-        "request": request,
-        "lesson": lesson
-    })
+    return templates.TemplateResponse(
+        "lesson_detail.html", {"request": request, "lesson": lesson}
+    )
 
 
 @app.get("/edit-lesson/{lesson_id}", response_class=HTMLResponse, tags=["Web UI"])
@@ -771,24 +774,27 @@ async def edit_lesson_form(request: Request, lesson_id: int):
         teachers = await uow.teachers.get_all()
         subjects = await uow.subjects.get_all()
 
-    return templates.TemplateResponse("edit_lesson.html", {
-        "request": request,
-        "lesson": lesson,
-        "groups": groups,
-        "teachers": teachers,
-        "subjects": subjects
-    })
+    return templates.TemplateResponse(
+        "edit_lesson.html",
+        {
+            "request": request,
+            "lesson": lesson,
+            "groups": groups,
+            "teachers": teachers,
+            "subjects": subjects,
+        },
+    )
 
 
 @app.post("/update-lesson/{lesson_id}", tags=["Web UI"])
 async def update_lesson(
-        lesson_id: int,
-        start_datetime: str = Form(...),
-        group_id: int = Form(...),
-        teacher_id: int = Form(...),
-        classroom: str = Form(...),
-        subject_id: int = Form(...),
-        lesson_type: Optional[str] = Form(None)
+    lesson_id: int,
+    start_datetime: str = Form(...),
+    group_id: int = Form(...),
+    teacher_id: int = Form(...),
+    classroom: str = Form(...),
+    subject_id: int = Form(...),
+    lesson_type: Optional[str] = Form(None),
 ):
     """Обновить занятие"""
     start_dt = datetime.fromisoformat(start_datetime)
@@ -832,10 +838,10 @@ async def delete_lesson(lesson_id: int):
 
 # ========== API - ПОЛЬЗОВАТЕЛИ ==========
 
+
 @app.get("/api/users", tags=["Users"])
 async def api_list_users(
-        limit: int = Query(100, ge=1, le=1000),
-        offset: int = Query(0, ge=0)
+    limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0)
 ):
     """API: Получить список пользователей"""
     async with UnitOfWork() as uow:
@@ -849,7 +855,7 @@ async def api_list_users(
             "group": user.group.group_name if user.group else None,
             "created_at": user.created_at.isoformat(),
             "last_activity": user.last_activity.isoformat(),
-            "total_requests": user.total_requests
+            "total_requests": user.total_requests,
         }
         for user in users
     ]
@@ -878,10 +884,10 @@ async def api_get_user(user_id: int):
             {
                 "type": req.request_type,
                 "data": req.request_data,
-                "timestamp": req.timestamp.isoformat()
+                "timestamp": req.timestamp.isoformat(),
             }
             for req in requests
-        ]
+        ],
     }
 
 
@@ -894,5 +900,5 @@ if __name__ == "__main__":
         "api:app",
         port=8000,
         reload=True,  # Автоперезагрузка при изменениях (только для dev)
-        log_level="info"
+        log_level="info",
     )

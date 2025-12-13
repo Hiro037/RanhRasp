@@ -10,11 +10,12 @@
 - render_html: создает HTML из данных расписания
 - html_to_image: конвертирует HTML в PNG изображение
 """
+
 import asyncio
 from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict, List
 
 from jinja2 import Environment, FileSystemLoader
 from playwright.async_api import async_playwright
@@ -37,23 +38,33 @@ env = Environment(
     loader=FileSystemLoader(str(TEMPLATES_DIR)),
     autoescape=True,
     trim_blocks=True,
-    lstrip_blocks=True
+    lstrip_blocks=True,
 )
 
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 
+
 def format_time(dt: datetime) -> str:
     """Форматирование времени для отображения"""
-    return dt.strftime('%H:%M')
+    return dt.strftime("%H:%M")
 
 
 def format_date_readable(d: date) -> str:
     """Форматирование даты в читаемый вид"""
     months_ru = {
-        1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-        5: "мая", 6: "июня", 7: "июля", 8: "августа",
-        9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+        1: "января",
+        2: "февраля",
+        3: "марта",
+        4: "апреля",
+        5: "мая",
+        6: "июня",
+        7: "июля",
+        8: "августа",
+        9: "сентября",
+        10: "октября",
+        11: "ноября",
+        12: "декабря",
     }
     return f"{d.day} {months_ru[d.month]}"
 
@@ -73,6 +84,7 @@ def get_topic_by_group(group_name: str) -> str:
 
 
 # ========== ОСНОВНЫЕ ФУНКЦИИ ==========
+
 
 async def render_html(target_date: date, group_name: str) -> str:
     """
@@ -99,14 +111,13 @@ async def render_html(target_date: date, group_name: str) -> str:
         "Лекция": "ЛЕКЦИЯ",
         "Практика": "ПРАКТИКА",
         "л": "ЛЕКЦИЯ",
-        "пр": "ПРАКТИКА"
+        "пр": "ПРАКТИКА",
     }
 
     for lesson in lessons:
         # Определяем тип занятия
         lesson_type = lesson_types_map.get(
-            lesson.lesson_type,
-            "ЗАНЯТИЕ" if lesson.lesson_type else "ЗАНЯТИЕ"
+            lesson.lesson_type, "ЗАНЯТИЕ" if lesson.lesson_type else "ЗАНЯТИЕ"
         )
 
         # Форматируем аудиторию
@@ -156,10 +167,7 @@ async def render_html(target_date: date, group_name: str) -> str:
 
     # Рендерим шаблон
     html = template.render(
-        lessons=lessons_data,
-        date=formatted_date,
-        topic=topic,
-        group=group_name
+        lessons=lessons_data, date=formatted_date, topic=topic, group=group_name
     )
 
     return html
@@ -189,16 +197,19 @@ async def html_to_image(html: str) -> BytesIO:
             browser = await p.chromium.launch(
                 headless=True,
                 args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu'
-                ]
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                ],
             )
 
             # Создаем страницу с нужными размерами
             page = await browser.new_page(
-                viewport={"width": 624, "height": 100}  # Начальная высота, будет автоматически расширена
+                viewport={
+                    "width": 624,
+                    "height": 100,
+                }  # Начальная высота, будет автоматически расширена
             )
 
             # Загружаем HTML
@@ -209,10 +220,7 @@ async def html_to_image(html: str) -> BytesIO:
             await page.wait_for_timeout(500)  # Даем время на рендеринг CSS
 
             # Делаем скриншот полной страницы
-            png_bytes = await page.screenshot(
-                full_page=True,
-                type='png'
-            )
+            png_bytes = await page.screenshot(full_page=True, type="png")
 
             await browser.close()
 
@@ -234,6 +242,7 @@ async def html_to_image(html: str) -> BytesIO:
 
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ТЕСТИРОВАНИЯ ==========
+
 
 async def test_render():
     """Тестовая функция для проверки рендеринга"""

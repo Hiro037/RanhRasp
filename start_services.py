@@ -13,10 +13,11 @@
     --api-only    - Запустить только API
     --dev         - Режим разработки (автоперезагрузка)
 """
+
 import asyncio
+import logging
 import multiprocessing
 import sys
-import logging
 from typing import Optional
 
 import uvicorn
@@ -25,7 +26,7 @@ from dotenv import load_dotenv
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ def run_bot():
     """Запуск Telegram бота"""
     logger.info("🤖 Запуск Telegram бота...")
     from main import main
+
     asyncio.run(main())
 
 
@@ -53,7 +55,7 @@ def run_api(dev_mode: bool = False):
         port=8000,
         reload=dev_mode,
         log_level="info",
-        access_log=True
+        access_log=True,
     )
 
 
@@ -70,7 +72,9 @@ def start_all(dev_mode: bool = False):
 
     # Создаем процессы для бота и API
     bot_process = multiprocessing.Process(target=run_bot, name="TelegramBot")
-    api_process = multiprocessing.Process(target=run_api, args=(dev_mode,), name="FastAPI")
+    api_process = multiprocessing.Process(
+        target=run_api, args=(dev_mode,), name="FastAPI"
+    )
 
     try:
         # Запускаем процессы
@@ -79,7 +83,9 @@ def start_all(dev_mode: bool = False):
 
         logger.info("✅ Все сервисы запущены")
         logger.info("   🤖 Telegram бот - PID: %d", bot_process.pid)
-        logger.info("   🌐 FastAPI сервер - http://0.0.0.0:8000 - PID: %d", api_process.pid)
+        logger.info(
+            "   🌐 FastAPI сервер - http://0.0.0.0:8000 - PID: %d", api_process.pid
+        )
         logger.info("   📚 API документация - http://0.0.0.0:8000/api/docs")
         logger.info("")
         logger.info("Нажмите Ctrl+C для остановки")
@@ -125,25 +131,19 @@ def main():
   python start_services.py --bot-only   # Только бот
   python start_services.py --api-only   # Только API
   python start_services.py --dev        # Режим разработки
-        """
+        """,
     )
 
     parser.add_argument(
-        '--bot-only',
-        action='store_true',
-        help='Запустить только Telegram бота'
+        "--bot-only", action="store_true", help="Запустить только Telegram бота"
     )
 
     parser.add_argument(
-        '--api-only',
-        action='store_true',
-        help='Запустить только FastAPI сервер'
+        "--api-only", action="store_true", help="Запустить только FastAPI сервер"
     )
 
     parser.add_argument(
-        '--dev',
-        action='store_true',
-        help='Режим разработки (автоперезагрузка для API)'
+        "--dev", action="store_true", help="Режим разработки (автоперезагрузка для API)"
     )
 
     args = parser.parse_args()

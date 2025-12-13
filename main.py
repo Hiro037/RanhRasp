@@ -9,31 +9,32 @@
 
 Версия: 2.0.0 (Async)
 """
+
 import asyncio
 import logging
 import os
 import sys
 from datetime import datetime
 
-from aiogram import Dispatcher, Bot
+from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from dotenv import load_dotenv
 
-from database.models import init_db
 from bot import schedule_bot
-from middlewares import UserActivityMiddleware, GroupSelectionMiddleware
+from database.models import init_db
+from middlewares import GroupSelectionMiddleware, UserActivityMiddleware
 
 # ========== НАСТРОЙКА ЛОГИРОВАНИЯ ==========
 
 # Настраиваем базовое логирование
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('bot.log', encoding='utf-8')
-    ]
+        logging.FileHandler("bot.log", encoding="utf-8"),
+    ],
 )
 
 # Создаем логгер для приложения
@@ -62,6 +63,7 @@ if not ADMIN_ID:
 
 
 # ========== ИНИЦИАЛИЗАЦИЯ БОТА ==========
+
 
 async def on_startup(bot: Bot):
     """
@@ -101,7 +103,7 @@ async def on_startup(bot: Bot):
                 "🟢 <b>Бот запущен!</b>\n\n"
                 f"Время запуска: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
                 f"Версия: 2.0.0 (Async)\n"
-                f"Бот: @{bot_info.username}"
+                f"Бот: @{bot_info.username}",
             )
             logger.info(f"📬 Уведомление отправлено администратору (ID: {ADMIN_ID})")
         except Exception as e:
@@ -128,7 +130,7 @@ async def on_shutdown(bot: Bot):
             await bot.send_message(
                 ADMIN_ID,
                 "🔴 <b>Бот остановлен</b>\n\n"
-                f"Время остановки: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+                f"Время остановки: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}",
             )
         except Exception as e:
             logger.warning(f"⚠️ Не удалось отправить уведомление об остановке: {e}")
@@ -137,6 +139,7 @@ async def on_shutdown(bot: Bot):
 
 
 # ========== ГЛАВНАЯ ФУНКЦИЯ ==========
+
 
 async def main():
     """
@@ -156,7 +159,7 @@ async def main():
         token=BOT_TOKEN,
         default=DefaultBotProperties(
             parse_mode=ParseMode.HTML,  # HTML разметка по умолчанию
-        )
+        ),
     )
 
     # Создаем диспетчер

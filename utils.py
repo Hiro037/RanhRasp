@@ -6,11 +6,11 @@
 - Работы с расписанием (устаревшие, оставлены для совместимости)
 - Общие вспомогательные функции
 """
-import locale
-from datetime import datetime, date, timedelta, timezone
 
+from datetime import date, datetime, timedelta, timezone
 
 # ========== ФОРМАТИРОВАНИЕ ДАТ И ВРЕМЕНИ ==========
+
 
 def format_date_readable_manual(date_obj: date) -> str:
     """
@@ -27,9 +27,18 @@ def format_date_readable_manual(date_obj: date) -> str:
         '28 мая'
     """
     months_ru = {
-        1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-        5: "мая", 6: "июня", 7: "июля", 8: "августа",
-        9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+        1: "января",
+        2: "февраля",
+        3: "марта",
+        4: "апреля",
+        5: "мая",
+        6: "июня",
+        7: "июля",
+        8: "августа",
+        9: "сентября",
+        10: "октября",
+        11: "ноября",
+        12: "декабря",
     }
     return f"{date_obj.day} {months_ru[date_obj.month]}"
 
@@ -45,9 +54,18 @@ def format_date_full(date_obj: date) -> str:
         str: Дата в формате "день месяц год"
     """
     months_ru = {
-        1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-        5: "мая", 6: "июня", 7: "июля", 8: "августа",
-        9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+        1: "января",
+        2: "февраля",
+        3: "марта",
+        4: "апреля",
+        5: "мая",
+        6: "июня",
+        7: "июля",
+        8: "августа",
+        9: "сентября",
+        10: "октября",
+        11: "ноября",
+        12: "декабря",
     }
     return f"{date_obj.day} {months_ru[date_obj.month]} {date_obj.year} года"
 
@@ -66,7 +84,7 @@ def format_time(dt_object: datetime) -> str:
         >>> format_time(datetime(2025, 5, 28, 14, 30))
         '14:30'
     """
-    return dt_object.strftime('%H:%M')
+    return dt_object.strftime("%H:%M")
 
 
 def format_datetime(dt_object: datetime) -> str:
@@ -79,10 +97,11 @@ def format_datetime(dt_object: datetime) -> str:
     Returns:
         str: Дата и время в формате "ДД.ММ.ГГГГ ЧЧ:ММ"
     """
-    return dt_object.strftime('%d.%m.%Y %H:%M')
+    return dt_object.strftime("%d.%m.%Y %H:%M")
 
 
 # ========== РАБОТА С ВРЕМЕНЕМ ==========
+
 
 def greeting_by_time() -> str:
     """
@@ -158,11 +177,13 @@ def get_weekday_name(target_date: date) -> str:
         3: "Четверг",
         4: "Пятница",
         5: "Суббота",
-        6: "Воскресенье"
+        6: "Воскресенье",
     }
     return weekdays[target_date.weekday()]
 
+
 # ========== ВАЛИДАЦИЯ ==========
+
 
 def validate_group_name(group_name: str) -> bool:
     """
@@ -175,10 +196,20 @@ def validate_group_name(group_name: str) -> bool:
         bool: True если название корректно
     """
     valid_groups = {
-        "Э-42", "Э-43", "Э-44",
-        "М-42", "М-43", "М-44",
-        "ГМУ-41", "ГМУ-42", "ГМУ-43", "ГМУ-44",
-        "Ю-41", "Ю-42", "Ю-43", "Ю-44"
+        "Э-42",
+        "Э-43",
+        "Э-44",
+        "М-42",
+        "М-43",
+        "М-44",
+        "ГМУ-41",
+        "ГМУ-42",
+        "ГМУ-43",
+        "ГМУ-44",
+        "Ю-41",
+        "Ю-42",
+        "Ю-43",
+        "Ю-44",
     }
     return group_name in valid_groups
 

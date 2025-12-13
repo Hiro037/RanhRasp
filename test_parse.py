@@ -6,14 +6,16 @@
 - import_schedule_to_db_async: асинхронный импорт расписания в БД
 - convert_doc_to_docx: конвертация .doc в .docx через LibreOffice
 """
+
 import re
 import subprocess
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 from docx import Document
 
-
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+
 
 def parse_time_range(time_str: str) -> tuple[datetime.time, datetime.time]:
     """
@@ -81,18 +83,23 @@ def extract_fio(teacher_str: str) -> str:
         str: ФИО преподавателя
     """
     # Находим шаблон "Фамилия И.О." в конце строки
-    match = re.search(r'([А-ЯЁA-Z][а-яёa-z]+\s+[А-ЯA-Z]\.[А-ЯA-Z]\.)(?:\s+|$)', teacher_str)
+    match = re.search(
+        r"([А-ЯЁA-Z][а-яёa-z]+\s+[А-ЯA-Z]\.[А-ЯA-Z]\.)(?:\s+|$)", teacher_str
+    )
     if match:
         return match.group(1).strip()
 
     # Если не нашли, возвращаем очищенную строку
     result = teacher_str.strip()
     # Удаляем должности
-    result = re.sub(r'\s+(доц\.|проф\.|ст\.\s*преп\.|преп\.)', '', result, flags=re.IGNORECASE)
+    result = re.sub(
+        r"\s+(доц\.|проф\.|ст\.\s*преп\.|преп\.)", "", result, flags=re.IGNORECASE
+    )
     return result
 
 
 # ========== ОСНОВНЫЕ ФУНКЦИИ ==========
+
 
 def parse_docx_schedule(docx_path: str, group_name: str) -> List[Dict]:
     """
@@ -144,7 +151,9 @@ def parse_docx_schedule(docx_path: str, group_name: str) -> List[Dict]:
                     date_obj = datetime.strptime(m.group(1), "%d.%m.%y").date()
                     current_date = date_obj
                 except ValueError as e:
-                    print(f"⚠️ Ошибка парсинга даты в строке {row_idx}: {date_cell} - {e}")
+                    print(
+                        f"⚠️ Ошибка парсинга даты в строке {row_idx}: {date_cell} - {e}"
+                    )
                     continue
 
         # Пропускаем строки без даты, времени или предмета
@@ -177,15 +186,17 @@ def parse_docx_schedule(docx_path: str, group_name: str) -> List[Dict]:
                 print(f"⚠️ Пропущена строка {row_idx}: пустой предмет")
                 continue
 
-            lessons.append({
-                "group": group_name,
-                "subject": subject,
-                "lesson_type": lesson_type,
-                "teacher": teacher_name,
-                "classroom": room,
-                "start_datetime": dt_start,
-                "end_datetime": dt_end,
-            })
+            lessons.append(
+                {
+                    "group": group_name,
+                    "subject": subject,
+                    "lesson_type": lesson_type,
+                    "teacher": teacher_name,
+                    "classroom": room,
+                    "start_datetime": dt_start,
+                    "end_datetime": dt_end,
+                }
+            )
 
         except Exception as e:
             print(f"⚠️ Ошибка парсинга строки {row_idx}: {e}")
@@ -261,7 +272,7 @@ async def import_schedule_to_db_async(lessons: List[Dict], uow) -> int:
                 teacher_id=teacher.teacher_id,
                 subject_id=subject.subject_id,
                 classroom=lesson_data["classroom"],
-                lesson_type=lesson_data["lesson_type"]
+                lesson_type=lesson_data["lesson_type"],
             )
 
             imported_count += 1
@@ -305,19 +316,20 @@ def convert_doc_to_docx(input_path: str) -> str:
     print(f"🔄 Конвертация {input_path} в .docx...")
 
     try:
-        result = subprocess.run([
-            "libreoffice",
-            "--headless",
-            "--convert-to",
-            "docx",
-            input_path,
-            "--outdir",
-            str(Path(input_path).parent)
-        ],
+        result = subprocess.run(
+            [
+                "libreoffice",
+                "--headless",
+                "--convert-to",
+                "docx",
+                input_path,
+                "--outdir",
+                str(Path(input_path).parent),
+            ],
             check=True,
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
         )
 
         output_path = input_path.rsplit(".", 1)[0] + ".docx"
@@ -337,6 +349,7 @@ def convert_doc_to_docx(input_path: str) -> str:
 
 # ========== СИНХРОННАЯ ВЕРСИЯ ДЛЯ СОВМЕСТИМОСТИ ==========
 
+
 def import_schedule_to_db_sync(lessons: List[Dict]) -> int:
     """
     DEPRECATED: Синхронная версия импорта
@@ -351,6 +364,7 @@ def import_schedule_to_db_sync(lessons: List[Dict]) -> int:
         int: Количество импортированных занятий
     """
     import asyncio
+
     from database.repositories import UnitOfWork
 
     print("⚠️ ВНИМАНИЕ: Используется устаревшая синхронная версия импорта")
@@ -389,7 +403,7 @@ def validate_schedule_file(file_path: str) -> bool:
         print(f"❌ Файл не найден: {file_path}")
         return False
 
-    if path.suffix.lower() not in ['.doc', '.docx']:
+    if path.suffix.lower() not in [".doc", ".docx"]:
         print(f"❌ Неподдерживаемый формат: {path.suffix}")
         return False
 
@@ -438,7 +452,9 @@ def print_schedule_summary(lessons: List[Dict]):
     print(f"Преподавателей: {len(teachers)}")
 
     if date_range[0] and date_range[1]:
-        print(f"Период: {date_range[0].strftime('%d.%m.%Y')} - {date_range[1].strftime('%d.%m.%Y')}")
+        print(
+            f"Период: {date_range[0].strftime('%d.%m.%Y')} - {date_range[1].strftime('%d.%m.%Y')}"
+        )
 
     print("\nПредметы:")
     for subject in sorted(subjects):
@@ -452,8 +468,8 @@ def print_schedule_summary(lessons: List[Dict]):
 
 if __name__ == "__main__":
     import asyncio
-    from database.repositories import UnitOfWork
 
+    from database.repositories import UnitOfWork
 
     async def main():
         # Пример использования
@@ -478,6 +494,5 @@ if __name__ == "__main__":
             await uow.commit()
 
         print(f"\n✅ Готово! Импортировано занятий: {count}")
-
 
     asyncio.run(main())
