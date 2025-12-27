@@ -648,6 +648,9 @@ class ScheduleBot:
         self.router.message(Command("clearcache"))(self.clear_cache_handler)
         self.router.message(Command("feedback"))(self.feedback_start)
         self.router.message(Command("prepareschedule"))(self.prepare_schedule_start)
+        self.router.message(Command("verify_teacher"))(self.admin_verify_teacher)
+        self.router.message(Command("pending_teachers"))(self.admin_pending_teachers)
+
 
         # Обработчики главного меню
         self.router.callback_query(StateFilter(None), F.data == "view_schedule")(
@@ -862,6 +865,94 @@ class ScheduleBot:
             "Мы обязательно его рассмотрим и постараемся сделать бот еще лучше! 🚀"
         )
         await state.clear()
+    # ========== АДМИНСКИЕ КОМАНДЫ ==========
+
+    async def admin_verify_teacher(self, message: types.Message, state: FSMContext, bot: Bot):
+        """Верификация преподавателя (только админ)"""
+        if str(message.from_user.id) != ADMIN_ID:
+            await message.answer("⛔️ У вас нет прав для выполнения этой команды")
+            return
+        
+        # Формат: /verify_teacher <user_id>
+        try:
+            parts = message.text.split()
+            if len(parts) < 2:
+                await message.answer(
+                    "Использование: /verify_teacher <user_id>\n\n"
+                    "Используйте /pending_teachers для просмотра списка"
+                )
+                return
+            
+            user_id = int(parts[1])
+            
+            async with UnitOfWork() as uow:
+                user = await uow.users.get_by_telegram_id(user_id)
+                
+                if not user:
+                    await message.answer("❌ Пользователь не найден")
+                    return
+                
+                if user.user_type != "teacher":
+                    await message.answer("❌ Этот пользователь не является преподавателем")
+                    return
+                
+                # Верифицируем
+                await uow.users.update(user_id=user_id, is_verified=True)
+                await uow.commit()
+            
+            await message.answer(
+                f"✅ Преподаватель верифицирован!\n\n"
+                f"ID: {user_id}\n"
+                f"Имя: {user.teacher.name}"
+            )
+            
+            # Уведомляем преподавателя
+            try:
+                await bot.send_message(
+                    user_id,
+                    "🎉 <b>Ваш аккаунт преподавателя верифицирован!</b>\n\n"
+                    "Теперь вам доступны:\n"
+                    "• Просмотр вашего расписания: /teacher_schedule\n"
+                    "• Добавление комментариев к занятиям\n"
+                    "• Уведомления студентов"
+                )
+            except Exception as e:
+                print(f"⚠️ Не удалось уведомить преподавателя: {e}")
+        
+        except ValueError:
+            await message.answer("❌ Неверный формат user_id")
+        except Exception as e:
+            await message.answer(f"❌ Ошибка: {e}")
+
+    async def admin_pending_teachers(self, message: types.Message, state: FSMContext, bot: Bot):
+        """Список ожидающих верификации преподавателей"""
+        if str(message.from_user.id) != ADMIN_ID:
+            await message.answer("⛔️ У вас нет прав для выполнения этой команды")
+            return
+        
+        async with UnitOfWork() as uow:
+            result = await uow.session.execute(
+                select(User).where(
+                    User.user_type == "teacher",
+                    User.is_verified == False
+                ).options(selectinload(User.teacher))
+            )
+            pending = result.scalars().all()
+        
+        if not pending:
+            await message.answer("✅ Нет преподавателей, ожидающих верификации")
+            return
+        
+        response = "⏳ <b>Ожидают верификации:</b>\n\n"
+        for user in pending:
+            response += (
+                f"👤 {user.teacher.name}\n"
+                f"ID: <code>{user.user_id}</code>\n"
+                f"Username: @{user.username or 'нет'}\n"
+                f"Команда: /verify_teacher {user.user_id}\n\n"
+            )
+        
+        await message.answer(response)
 
     # ========== РЕГИСТРАЦИЯ ПРЕПОДАВАТЕЛЯ ==========
 
