@@ -671,6 +671,12 @@ class ScheduleBot:
             F.data.startswith("teacher_date_")
         )(self.teacher_select_lesson)
 
+        self.router.callback_query(
+            TeacherSchedule.choosing_lesson, 
+            F.data.startswith("lesson_")
+        )(self.teacher_add_comment_start)
+        self.router.message(TeacherSchedule.writing_comment)(self.teacher_add_comment_finish)
+
         # Обработчики состояний для выбора расписания
         self.router.callback_query(
             StateFilter(None), F.data.in_(self.keyboard_manager.VALID_FACULTIES)
@@ -853,224 +859,283 @@ class ScheduleBot:
 
     # ========== РЕГИСТРАЦИЯ ПРЕПОДАВАТЕЛЯ ==========
 
-async def teacher_register_start(
-    self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
-):
-    """Начало регистрации преподавателя"""
-    if db_user and db_user.user_type == "teacher" and db_user.teacher_id:
-        status = "✅ Верифицирован" if db_user.is_verified else "⏳ Ожидает верификации"
-        await message.answer(
-            f"✅ Вы уже зарегистрированы как преподаватель\n\n"
-            f"Имя: {db_user.teacher.name}\n"
-            f"Статус: {status}"
-        )
-        return
-
-    response = (
-        "👨‍🏫 <b>Регистрация преподавателя</b>\n\n"
-        "Введите ваше ФИО точно так, как оно указано в расписании.\n\n"
-        "<i>Например: Иванов Иван Иванович</i>"
-    )
-    await message.answer(response)
-    await state.set_state(TeacherRegistration.waiting_for_name)
-
-async def teacher_register_confirm(
-    self, message: types.Message, state: FSMContext, bot: Bot
-):
-    """Подтверждение найденного преподавателя"""
-    teacher_name = message.text.strip()
-
-    async with UnitOfWork() as uow:
-        teacher = await uow.teachers.get_by_name(teacher_name)
-
-        if not teacher:
+    async def teacher_register_start(
+        self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
+    ):
+        """Начало регистрации преподавателя"""
+        if db_user and db_user.user_type == "teacher" and db_user.teacher_id:
+            status = "✅ Верифицирован" if db_user.is_verified else "⏳ Ожидает верификации"
             await message.answer(
-                "❌ Преподаватель с таким ФИО не найден в базе.\n\n"
-                "Убедитесь, что вы ввели имя точно как в расписании, "
-                "или обратитесь к администратору."
+                f"✅ Вы уже зарегистрированы как преподаватель\n\n"
+                f"Имя: {db_user.teacher.name}\n"
+                f"Статус: {status}"
             )
             return
 
-        # Проверяем, не привязан ли уже этот Teacher к другому User
-        result = await uow.session.execute(
-            select(User).where(User.teacher_id == teacher.teacher_id)
+        response = (
+            "👨‍🏫 <b>Регистрация преподавателя</b>\n\n"
+            "Введите ваше ФИО точно так, как оно указано в расписании.\n\n"
+            "<i>Например: Иванов Иван Иванович</i>"
         )
-        existing_user = result.scalar_one_or_none()
+        await message.answer(response)
+        await state.set_state(TeacherRegistration.waiting_for_name)
 
-        if existing_user:
-            await message.answer(
-                "⚠️ Этот преподаватель уже зарегистрирован другим пользователем.\n\n"
-                "Если это ошибка, обратитесь к администратору."
+    async def teacher_register_confirm(
+        self, message: types.Message, state: FSMContext, bot: Bot
+    ):
+        """Подтверждение найденного преподавателя"""
+        teacher_name = message.text.strip()
+
+        async with UnitOfWork() as uow:
+            teacher = await uow.teachers.get_by_name(teacher_name)
+
+            if not teacher:
+                await message.answer(
+                    "❌ Преподаватель с таким ФИО не найден в базе.\n\n"
+                    "Убедитесь, что вы ввели имя точно как в расписании, "
+                    "или обратитесь к администратору."
+                )
+                return
+
+            # Проверяем, не привязан ли уже этот Teacher к другому User
+            result = await uow.session.execute(
+                select(User).where(User.teacher_id == teacher.teacher_id)
             )
-            return
+            existing_user = result.scalar_one_or_none()
 
-        await state.update_data(
-            teacher_id=teacher.teacher_id,
-            teacher_name=teacher.name
-        )
+            if existing_user:
+                await message.answer(
+                    "⚠️ Этот преподаватель уже зарегистрирован другим пользователем.\n\n"
+                    "Если это ошибка, обратитесь к администратору."
+                )
+                return
 
-    builder = InlineKeyboardBuilder()
-    builder.add(
-        types.InlineKeyboardButton(
-            text="✅ Да, это я", callback_data="confirm_teacher"
-        )
-    )
-    builder.add(
-        types.InlineKeyboardButton(
-            text="❌ Отмена", callback_data="cancel"
-        )
-    )
-    builder.adjust(1)
+            await state.update_data(
+                teacher_id=teacher.teacher_id,
+                teacher_name=teacher.name
+            )
 
-    await message.answer(
-        f"Найден преподаватель:\n\n"
-        f"<b>{teacher.name}</b>\n\n"
-        f"Это вы?",
-        reply_markup=builder.as_markup()
-    )
-    await state.set_state(TeacherRegistration.waiting_for_confirmation)
-
-async def teacher_register_complete(
-    self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None
-):
-    """Завершение регистрации преподавателя"""
-    data = await state.get_data()
-    teacher_id = data["teacher_id"]
-    teacher_name = data["teacher_name"]
-
-    async with UnitOfWork() as uow:
-        # Обновляем пользователя
-        await uow.users.update(
-            user_id=callback.from_user.id,
-            user_type="teacher",
-            teacher_id=teacher_id,
-            is_verified=False  # Требуется верификация админом
-        )
-        await uow.commit()
-
-    # Уведомляем админа
-    try:
-        await bot.send_message(
-            ADMIN_ID,
-            f"🆕 <b>Новая регистрация преподавателя</b>\n\n"
-            f"ФИО: {teacher_name}\n"
-            f"Telegram: @{callback.from_user.username or 'нет username'}\n"
-            f"ID: {callback.from_user.id}\n\n"
-            f"Требуется верификация!"
-        )
-    except Exception as e:
-        print(f"⚠️ Не удалось уведомить админа: {e}")
-
-    await callback.message.edit_text(
-        "✅ <b>Регистрация успешна!</b>\n\n"
-        f"Вы зарегистрированы как: {teacher_name}\n\n"
-        "⏳ Ожидайте верификации администратором.\n"
-        "После одобрения вам станет доступен функционал преподавателя."
-    )
-    await state.clear()
-    await callback.answer()
-
-    # ========== РАСПИСАНИЕ ПРЕПОДАВАТЕЛЯ ==========
-
-async def teacher_view_schedule(
-    self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
-):
-    """Просмотр расписания преподавателя"""
-    if not db_user or db_user.user_type != "teacher" or not db_user.teacher_id:
-        await message.answer(
-            "⚠️ Эта команда доступна только преподавателям.\n\n"
-            "Используйте /register_teacher для регистрации."
-        )
-        return
-
-    if not db_user.is_verified:
-        await message.answer(
-            "⏳ Ваш аккаунт преподавателя ожидает верификации администратором."
-        )
-        return
-
-    # Клавиатура выбора даты (7 дней вперед)
-    builder = InlineKeyboardBuilder()
-    today = date.today()
-
-    for i in range(7):
-        target_date = today + timedelta(days=i)
-        button_text = format_date_readable_manual(target_date)
-        if i == 0:
-            button_text = f"🔴 Сегодня ({button_text})"
-        elif i == 1:
-            button_text = f"🟡 Завтра ({button_text})"
-
+        builder = InlineKeyboardBuilder()
         builder.add(
             types.InlineKeyboardButton(
-                text=button_text,
-                callback_data=f"teacher_date_{target_date.isoformat()}"
+                text="✅ Да, это я", callback_data="confirm_teacher"
             )
         )
-
-    builder.adjust(1)
-
-    await self.message_manager.send_bot_message(
-        message,
-        "📅 Выберите дату для просмотра ваших занятий:",
-        builder.as_markup(),
-        bot,
-        state
-    )
-    await state.set_state(TeacherSchedule.choosing_date)
-
-async def teacher_select_lesson(
-    self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None
-):
-    """Выбор занятия для добавления комментария"""
-    date_str = callback.data.split("_")[2]
-    target_date = date.fromisoformat(date_str)
-
-    async with UnitOfWork() as uow:
-        lessons = await uow.teachers.get_lessons_for_date(
-            db_user.teacher_id, target_date
+        builder.add(
+            types.InlineKeyboardButton(
+                text="❌ Отмена", callback_data="cancel"
+            )
         )
+        builder.adjust(1)
 
-    if not lessons:
+        await message.answer(
+            f"Найден преподаватель:\n\n"
+            f"<b>{teacher.name}</b>\n\n"
+            f"Это вы?",
+            reply_markup=builder.as_markup()
+        )
+        await state.set_state(TeacherRegistration.waiting_for_confirmation)
+
+    async def teacher_register_complete(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None
+    ):
+        """Завершение регистрации преподавателя"""
+        data = await state.get_data()
+        teacher_id = data["teacher_id"]
+        teacher_name = data["teacher_name"]
+
+        async with UnitOfWork() as uow:
+            # Обновляем пользователя
+            await uow.users.update(
+                user_id=callback.from_user.id,
+                user_type="teacher",
+                teacher_id=teacher_id,
+                is_verified=False  # Требуется верификация админом
+            )
+            await uow.commit()
+
+        # Уведомляем админа
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"🆕 <b>Новая регистрация преподавателя</b>\n\n"
+                f"ФИО: {teacher_name}\n"
+                f"Telegram: @{callback.from_user.username or 'нет username'}\n"
+                f"ID: {callback.from_user.id}\n\n"
+                f"Требуется верификация!"
+            )
+        except Exception as e:
+            print(f"⚠️ Не удалось уведомить админа: {e}")
+
         await callback.message.edit_text(
-            f"✨ У вас нет занятий {format_date_readable_manual(target_date)}"
+            "✅ <b>Регистрация успешна!</b>\n\n"
+            f"Вы зарегистрированы как: {teacher_name}\n\n"
+            "⏳ Ожидайте верификации администратором.\n"
+            "После одобрения вам станет доступен функционал преподавателя."
         )
         await state.clear()
         await callback.answer()
-        return
 
-    # Формируем список занятий с кнопками
-    builder = InlineKeyboardBuilder()
-    response = f"📚 <b>Ваши занятия {format_date_readable_manual(target_date)}:</b>\n\n"
+    # ========== РАСПИСАНИЕ ПРЕПОДАВАТЕЛЯ ==========
 
-    for idx, lesson in enumerate(lessons, 1):
-        lesson_time = lesson.start_datetime.strftime("%H:%M")
-        response += (
-            f"{idx}. {lesson_time} - {lesson.subject.name}\n"
-            f"   Группа: {lesson.group.group_name}\n"
-            f"   Аудитория: {lesson.classroom}\n\n"
+    async def teacher_view_schedule(
+        self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
+    ):
+        """Просмотр расписания преподавателя"""
+        if not db_user or db_user.user_type != "teacher" or not db_user.teacher_id:
+            await message.answer(
+                "⚠️ Эта команда доступна только преподавателям.\n\n"
+                "Используйте /register_teacher для регистрации."
+            )
+            return
+
+        if not db_user.is_verified:
+            await message.answer(
+                "⏳ Ваш аккаунт преподавателя ожидает верификации администратором."
+            )
+            return
+
+        # Клавиатура выбора даты (7 дней вперед)
+        builder = InlineKeyboardBuilder()
+        today = date.today()
+
+        for i in range(7):
+            target_date = today + timedelta(days=i)
+            button_text = format_date_readable_manual(target_date)
+            if i == 0:
+                button_text = f"🔴 Сегодня ({button_text})"
+            elif i == 1:
+                button_text = f"🟡 Завтра ({button_text})"
+
+            builder.add(
+                types.InlineKeyboardButton(
+                    text=button_text,
+                    callback_data=f"teacher_date_{target_date.isoformat()}"
+                )
+            )
+
+        builder.adjust(1)
+
+        await self.message_manager.send_bot_message(
+            message,
+            "📅 Выберите дату для просмотра ваших занятий:",
+            builder.as_markup(),
+            bot,
+            state
         )
+        await state.set_state(TeacherSchedule.choosing_date)
+
+    async def teacher_select_lesson(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None
+    ):
+        """Выбор занятия для добавления комментария"""
+        date_str = callback.data.split("_")[2]
+        target_date = date.fromisoformat(date_str)
+
+        async with UnitOfWork() as uow:
+            lessons = await uow.teachers.get_lessons_for_date(
+                db_user.teacher_id, target_date
+            )
+
+        if not lessons:
+            await callback.message.edit_text(
+                f"✨ У вас нет занятий {format_date_readable_manual(target_date)}"
+            )
+            await state.clear()
+            await callback.answer()
+            return
+
+        # Формируем список занятий с кнопками
+        builder = InlineKeyboardBuilder()
+        response = f"📚 <b>Ваши занятия {format_date_readable_manual(target_date)}:</b>\n\n"
+
+        for idx, lesson in enumerate(lessons, 1):
+            lesson_time = lesson.start_datetime.strftime("%H:%M")
+            response += (
+                f"{idx}. {lesson_time} - {lesson.subject.name}\n"
+                f"   Группа: {lesson.group.group_name}\n"
+                f"   Аудитория: {lesson.classroom}\n\n"
+            )
+
+            builder.add(
+                types.InlineKeyboardButton(
+                    text=f"{idx}. {lesson_time} {lesson.subject.name}",
+                    callback_data=f"lesson_{lesson.lesson_id}"
+                )
+            )
 
         builder.add(
             types.InlineKeyboardButton(
-                text=f"{idx}. {lesson_time} {lesson.subject.name}",
-                callback_data=f"lesson_{lesson.lesson_id}"
+                text="❌ Отмена", callback_data="cancel"
             )
         )
+        builder.adjust(1)
 
-    builder.add(
-        types.InlineKeyboardButton(
-            text="❌ Отмена", callback_data="cancel"
+        response += "Выберите занятие для добавления комментария:"
+
+        await callback.message.edit_text(response, reply_markup=builder.as_markup())
+        await state.update_data(selected_date=target_date)
+        await state.set_state(TeacherSchedule.choosing_lesson)
+        await callback.answer()
+
+
+        async def teacher_add_comment_start(
+        self, callback: types.CallbackQuery, state: FSMContext, bot: Bot
+    ):
+        """Начало написания комментария"""
+        lesson_id = int(callback.data.split("_")[1])
+        await state.update_data(lesson_id=lesson_id)
+
+        async with UnitOfWork() as uow:
+            lesson = await uow.lessons.get_by_id(lesson_id)
+
+        response = (
+            f"✍️ <b>Добавление комментария</b>\n\n"
+            f"📚 {lesson.subject.name}\n"
+            f"👥 Группа: {lesson.group.group_name}\n"
+            f"🕐 {lesson.start_datetime.strftime('%H:%M')}\n\n"
+            f"Напишите комментарий для студентов:"
         )
-    )
-    builder.adjust(1)
 
-    response += "Выберите занятие для добавления комментария:"
+        await callback.message.edit_text(response)
+        await state.set_state(TeacherSchedule.writing_comment)
+        await callback.answer()
 
-    await callback.message.edit_text(response, reply_markup=builder.as_markup())
-    await state.update_data(selected_date=target_date)
-    await state.set_state(TeacherSchedule.choosing_lesson)
-    await callback.answer()
+    async def teacher_add_comment_finish(
+        self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
+    ):
+        """Сохранение комментария и отправка уведомлений"""
+        data = await state.get_data()
+        lesson_id = data["lesson_id"]
+        comment_text = message.text.strip()
+
+        async with UnitOfWork() as uow:
+            # Создаем комментарий
+            comment = await uow.lesson_comments.create(
+                lesson_id=lesson_id,
+                teacher_id=db_user.teacher_id,
+                comment_text=comment_text
+            )
+            await uow.commit()
+
+            # Получаем занятие с relations
+            lesson = await uow.lessons.get_by_id(lesson_id)
+
+        # Отправляем уведомления студентам
+        notification_manager = NotificationManager()
+        success, failed = await notification_manager.notify_students_about_comment(
+            bot, lesson, comment
+        )
+
+        await message.answer(
+            f"✅ <b>Комментарий добавлен!</b>\n\n"
+            f"📚 {lesson.subject.name}\n"
+            f"👥 Группа: {lesson.group.group_name}\n\n"
+            f"📨 Уведомления отправлены: {success}\n"
+            f"{('⚠️ Не удалось отправить: ' + str(failed)) if failed > 0 else ''}"
+        )
+        await state.clear()
+
 
 
     # ========== ОБРАБОТЧИКИ ГЛАВНОГО МЕНЮ ==========
