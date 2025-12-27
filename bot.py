@@ -665,6 +665,12 @@ class ScheduleBot:
             F.data == "confirm_teacher"
         )(self.teacher_register_complete)
 
+        self.router.message(Command("teacher_schedule"))(self.teacher_view_schedule)
+        self.router.callback_query(
+            TeacherSchedule.choosing_date, 
+            F.data.startswith("teacher_date_")
+        )(self.teacher_select_lesson)
+
         # Обработчики состояний для выбора расписания
         self.router.callback_query(
             StateFilter(None), F.data.in_(self.keyboard_manager.VALID_FACULTIES)
@@ -962,6 +968,108 @@ async def teacher_register_complete(
         "После одобрения вам станет доступен функционал преподавателя."
     )
     await state.clear()
+    await callback.answer()
+
+    # ========== РАСПИСАНИЕ ПРЕПОДАВАТЕЛЯ ==========
+
+async def teacher_view_schedule(
+    self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
+):
+    """Просмотр расписания преподавателя"""
+    if not db_user or db_user.user_type != "teacher" or not db_user.teacher_id:
+        await message.answer(
+            "⚠️ Эта команда доступна только преподавателям.\n\n"
+            "Используйте /register_teacher для регистрации."
+        )
+        return
+
+    if not db_user.is_verified:
+        await message.answer(
+            "⏳ Ваш аккаунт преподавателя ожидает верификации администратором."
+        )
+        return
+
+    # Клавиатура выбора даты (7 дней вперед)
+    builder = InlineKeyboardBuilder()
+    today = date.today()
+
+    for i in range(7):
+        target_date = today + timedelta(days=i)
+        button_text = format_date_readable_manual(target_date)
+        if i == 0:
+            button_text = f"🔴 Сегодня ({button_text})"
+        elif i == 1:
+            button_text = f"🟡 Завтра ({button_text})"
+
+        builder.add(
+            types.InlineKeyboardButton(
+                text=button_text,
+                callback_data=f"teacher_date_{target_date.isoformat()}"
+            )
+        )
+
+    builder.adjust(1)
+
+    await self.message_manager.send_bot_message(
+        message,
+        "📅 Выберите дату для просмотра ваших занятий:",
+        builder.as_markup(),
+        bot,
+        state
+    )
+    await state.set_state(TeacherSchedule.choosing_date)
+
+async def teacher_select_lesson(
+    self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None
+):
+    """Выбор занятия для добавления комментария"""
+    date_str = callback.data.split("_")[2]
+    target_date = date.fromisoformat(date_str)
+
+    async with UnitOfWork() as uow:
+        lessons = await uow.teachers.get_lessons_for_date(
+            db_user.teacher_id, target_date
+        )
+
+    if not lessons:
+        await callback.message.edit_text(
+            f"✨ У вас нет занятий {format_date_readable_manual(target_date)}"
+        )
+        await state.clear()
+        await callback.answer()
+        return
+
+    # Формируем список занятий с кнопками
+    builder = InlineKeyboardBuilder()
+    response = f"📚 <b>Ваши занятия {format_date_readable_manual(target_date)}:</b>\n\n"
+
+    for idx, lesson in enumerate(lessons, 1):
+        lesson_time = lesson.start_datetime.strftime("%H:%M")
+        response += (
+            f"{idx}. {lesson_time} - {lesson.subject.name}\n"
+            f"   Группа: {lesson.group.group_name}\n"
+            f"   Аудитория: {lesson.classroom}\n\n"
+        )
+
+        builder.add(
+            types.InlineKeyboardButton(
+                text=f"{idx}. {lesson_time} {lesson.subject.name}",
+                callback_data=f"lesson_{lesson.lesson_id}"
+            )
+        )
+
+    builder.add(
+        types.InlineKeyboardButton(
+            text="❌ Отмена", callback_data="cancel"
+        )
+    )
+    builder.adjust(1)
+
+    response += "Выберите занятие для добавления комментария:"
+
+    await callback.message.edit_text(response, reply_markup=builder.as_markup())
+    await state.update_data(selected_date=target_date)
+    await state.set_state(TeacherSchedule.choosing_lesson)
     await callback.answer()
 
 
