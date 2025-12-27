@@ -134,6 +134,40 @@ class UserRepository:
             .where(User.last_activity >= threshold)
         )
         return result.scalar_one()
+    
+    async def update(
+        self,
+        user_id: int,
+        user_type: Optional[str] = None,
+        teacher_id: Optional[int] = None,
+        is_verified: Optional[bool] = None,
+        username: Optional[str] = None,
+    ) -> Optional[User]:
+        """Обновить данные пользователя"""
+        user = await self.get_by_telegram_id(user_id)
+        if user:
+            if user_type is not None:
+                user.user_type = user_type
+            if teacher_id is not None:
+                user.teacher_id = teacher_id
+            if is_verified is not None:
+                user.is_verified = is_verified
+            if username is not None:
+                user.username = username
+            await self.session.flush()
+            await self.session.refresh(user)
+        return user
+
+    async def get_students_by_group(self, group_id: int) -> Sequence[User]:
+        """Получить всех верифицированных студентов группы"""
+        result = await self.session.execute(
+            select(User).where(
+                User.group_id == group_id,
+                User.user_type == "student",
+                User.is_verified == True
+            )
+        )
+        return result.scalars().all()
 
 
 # ========== USER REQUEST REPOSITORY ==========
@@ -392,14 +426,53 @@ class TeacherRepository:
     async def get_by_id(self, teacher_id: int) -> Optional[Teacher]:
         """Получить преподавателя по ID"""
         result = await self.session.execute(
-            select(Teacher).where(Teacher.teacher_id == teacher_id)
+            select(Teacher)
+            .where(Teacher.teacher_id == teacher_id)
+            .options(selectinload(Teacher.user_account))
         )
         return result.scalar_one_or_none()
 
     async def get_by_name(self, name: str) -> Optional[Teacher]:
         """Получить преподавателя по имени"""
-        result = await self.session.execute(select(Teacher).where(Teacher.name == name))
+        result = await self.session.execute(
+            select(Teacher).where(Teacher.name == name)
+        )
         return result.scalar_one_or_none()
+
+    async def get_by_user_id(self, user_id: int) -> Optional[Teacher]:
+        """Найти преподавателя по telegram user_id"""
+        result = await self.session.execute(
+            select(Teacher)
+            .join(User, Teacher.teacher_id == User.teacher_id)
+            .where(User.user_id == user_id)
+            .options(selectinload(Teacher.user_account))
+        )
+        return result.scalar_one_or_none()
+
+    async def get_lessons_for_date(
+        self, teacher_id: int, target_date: date
+    ) -> Sequence[Lesson]:
+        """Получить занятия преподавателя на дату"""
+        from datetime import datetime, time
+        
+        start_datetime = datetime.combine(target_date, time.min)
+        end_datetime = datetime.combine(target_date, time.max)
+        
+        result = await self.session.execute(
+            select(Lesson)
+            .where(
+                Lesson.teacher_id == teacher_id,
+                Lesson.start_datetime >= start_datetime,
+                Lesson.start_datetime <= end_datetime
+            )
+            .options(
+                selectinload(Lesson.group),
+                selectinload(Lesson.subject),
+                selectinload(Lesson.comments)
+            )
+            .order_by(Lesson.start_datetime)
+        )
+        return result.scalars().all()
 
     async def get_all(self) -> Sequence[Teacher]:
         """Получить всех преподавателей"""
@@ -423,6 +496,7 @@ class TeacherRepository:
             return teacher, False
         teacher = await self.create(name)
         return teacher, True
+
 
 
 # ========== SUBJECT REPOSITORY ==========
@@ -467,6 +541,73 @@ class SubjectRepository:
         subject = await self.create(name)
         return subject, True
 
+# ========== LESSON COMMENT REPOSITORY ==========
+
+class LessonCommentRepository:
+    """Репозиторий для работы с комментариями к занятиям"""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(
+        self, lesson_id: int, teacher_id: int, comment_text: str
+    ) -> LessonComment:
+        """Создать новый комментарий"""
+        from database.models import LessonComment
+        
+        comment = LessonComment(
+            lesson_id=lesson_id,
+            teacher_id=teacher_id,
+            comment_text=comment_text
+        )
+        self.session.add(comment)
+        await self.session.flush()
+        await self.session.refresh(comment)
+        return comment
+
+    async def get_by_lesson(self, lesson_id: int) -> Sequence[LessonComment]:
+        """Получить все активные комментарии к занятию"""
+        from database.models import LessonComment
+        
+        result = await self.session.execute(
+            select(LessonComment)
+            .where(
+                LessonComment.lesson_id == lesson_id,
+                LessonComment.is_active == True
+            )
+            .order_by(LessonComment.created_at.desc())
+        )
+        return result.scalars().all()
+
+    async def get_by_id(self, comment_id: int) -> Optional[LessonComment]:
+        """Получить комментарий по ID"""
+        from database.models import LessonComment
+        
+        result = await self.session.execute(
+            select(LessonComment).where(LessonComment.comment_id == comment_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def update(self, comment_id: int, new_text: str) -> Optional[LessonComment]:
+        """Обновить текст комментария"""
+        from database.models import LessonComment
+        
+        comment = await self.get_by_id(comment_id)
+        if comment:
+            comment.comment_text = new_text
+            comment.updated_at = datetime.now()
+            await self.session.flush()
+            await self.session.refresh(comment)
+        return comment
+
+    async def delete(self, comment_id: int) -> bool:
+        """Деактивировать комментарий"""
+        comment = await self.get_by_id(comment_id)
+        if comment:
+            comment.is_active = False
+            await self.session.flush()
+            return True
+        return False
 
 # ========== UNIT OF WORK PATTERN ==========
 
@@ -497,6 +638,7 @@ class UnitOfWork:
         self.lessons = LessonRepository(self.session)
         self.teachers = TeacherRepository(self.session)
         self.subjects = SubjectRepository(self.session)
+        self.lesson_comments = LessonCommentRepository(self.session)
 
         return self
 
@@ -512,3 +654,4 @@ class UnitOfWork:
     async def rollback(self):
         """Откатить изменения"""
         await self.session.rollback()
+
