@@ -33,9 +33,7 @@ class Base(AsyncAttrs, DeclarativeBase):
 
 class User(Base):
     """
-    Модель пользователя бота
-
-    Хранит информацию о пользователях и их взаимодействии с ботом
+    Модель пользователя бота (студенты и преподаватели)
     """
 
     __tablename__ = "users"
@@ -49,7 +47,16 @@ class User(Base):
         String(255), nullable=True, comment="Telegram username"
     )
 
-    # Группа пользователя (связь с Group)
+    # Тип пользователя
+    user_type: Mapped[str] = mapped_column(
+        String(20), 
+        default="student", 
+        nullable=False, 
+        index=True,
+        comment="Тип: student или teacher"
+    )
+
+    # Для студентов - группа
     group_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("groups.group_id", ondelete="SET NULL"),
         nullable=True,
@@ -58,6 +65,23 @@ class User(Base):
     )
     group: Mapped[Optional["Group"]] = relationship(
         "Group", back_populates="students", lazy="selectin"
+    )
+
+    # Для преподавателей - связь с Teacher
+    teacher_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("teachers.teacher_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Связь с преподавателем (если user_type=teacher)"
+    )
+    teacher: Mapped[Optional["Teacher"]] = relationship(
+        "Teacher", back_populates="user_account", lazy="selectin"
+    )
+
+    # Статус верификации
+    is_verified: Mapped[bool] = mapped_column(
+        default=False, 
+        comment="Верифицирован ли пользователь (для преподавателей)"
     )
 
     # Метаданные
@@ -73,7 +97,7 @@ class User(Base):
         default=0, comment="Общее количество запросов"
     )
 
-    # Связь с запросами пользователя
+    # Связи
     requests: Mapped[List["UserRequest"]] = relationship(
         "UserRequest",
         back_populates="user",
@@ -82,10 +106,10 @@ class User(Base):
     )
 
     def __repr__(self):
-        return f"<User(id={self.id}, user_id={self.user_id}, username={self.username}, group={self.group.group_name if self.group else None})>"
+        return f"<User(id={self.id}, user_id={self.user_id}, type={self.user_type})>"
 
 
-# ========== МОДЕЛЬ ЗАПРОСОВ ПОЛЬЗОВАТЕЛЯ (НОВАЯ!) ==========
+# ========== МОДЕЛЬ ЗАПРОСОВ ПОЛЬЗОВАТЕЛЯ ==========
 
 
 class UserRequest(Base):
@@ -141,7 +165,7 @@ class UserRequest(Base):
         return f"<UserRequest(id={self.id}, user_id={self.user_id}, type={self.request_type})>"
 
 
-# ========== СУЩЕСТВУЮЩИЕ МОДЕЛИ (ОБНОВЛЕННЫЕ) ==========
+# ========== СУЩЕСТВУЮЩИЕ МОДЕЛИ  ==========
 
 
 class Group(Base):
@@ -186,9 +210,22 @@ class Teacher(Base):
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
+    # Связь с аккаунтом в Telegram (один-к-одному)
+    user_account: Mapped[Optional["User"]] = relationship(
+        "User", back_populates="teacher", uselist=False, lazy="selectin"
+    )
+
     # Связь с занятиями
     lessons: Mapped[List["Lesson"]] = relationship(
         "Lesson", back_populates="teacher", lazy="selectin"
+    )
+
+    # Связь с комментариями
+    comments: Mapped[List["LessonComment"]] = relationship(
+        "LessonComment", 
+        back_populates="teacher",
+        cascade="all, delete-orphan", 
+        lazy="selectin"
     )
 
     def __repr__(self):
@@ -265,9 +302,63 @@ class Lesson(Base):
         String(50), nullable=True, comment="Лекция, семинар, практика и т.д."
     )
 
-    def __repr__(self):
-        return f"<Lesson(id={self.lesson_id}, subject={self.subject.name if self.subject else None}, group={self.group.group_name if self.group else None})>"
+    # Связь с комментариями
+    comments: Mapped[List["LessonComment"]] = relationship(
+        "LessonComment", 
+        back_populates="lesson",
+        cascade="all, delete-orphan", 
+        lazy="selectin"
+    )
 
+    def __repr__(self):
+        return f"<Lesson(id={self.lesson_id}, subject={self.subject.name if self.subject else None})>"
+
+
+# ========== МОДЕЛЬ КОММЕНТАРИЕВ К ЗАНЯТИЯМ ==========
+
+class LessonComment(Base):
+    """
+    Комментарии преподавателей к занятиям
+    """
+
+    __tablename__ = "lesson_comments"
+
+    comment_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
+    # Связь с занятием
+    lesson_id: Mapped[int] = mapped_column(
+        ForeignKey("lessons.lesson_id", ondelete="CASCADE"), 
+        nullable=False, 
+        index=True
+    )
+    lesson: Mapped["Lesson"] = relationship("Lesson", back_populates="comments", lazy="selectin")
+
+    # Связь с преподавателем
+    teacher_id: Mapped[int] = mapped_column(
+        ForeignKey("teachers.teacher_id", ondelete="CASCADE"),
+        nullable=False, 
+        index=True
+    )
+    teacher: Mapped["Teacher"] = relationship("Teacher", back_populates="comments", lazy="selectin")
+
+    # Содержимое комментария
+    comment_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Метаданные
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, nullable=False, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, onupdate=datetime.now, nullable=False
+    )
+
+    # Флаг видимости
+    is_active: Mapped[bool] = mapped_column(
+        default=True, comment="Комментарий активен и виден студентам"
+    )
+
+    def __repr__(self):
+        return f"<LessonComment(id={self.comment_id}, lesson_id={self.lesson_id})>"
 
 # ========== ИНИЦИАЛИЗАЦИЯ БД ==========
 
