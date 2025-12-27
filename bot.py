@@ -657,6 +657,14 @@ class ScheduleBot:
             self.main_menu
         )
 
+            # Обработчики для преподавателей
+        self.router.message(Command("register_teacher"))(self.teacher_register_start)
+        self.router.message(TeacherRegistration.waiting_for_name)(self.teacher_register_confirm)
+        self.router.callback_query(
+            TeacherRegistration.waiting_for_confirmation, 
+            F.data == "confirm_teacher"
+        )(self.teacher_register_complete)
+
         # Обработчики состояний для выбора расписания
         self.router.callback_query(
             StateFilter(None), F.data.in_(self.keyboard_manager.VALID_FACULTIES)
@@ -836,6 +844,126 @@ class ScheduleBot:
             "Мы обязательно его рассмотрим и постараемся сделать бот еще лучше! 🚀"
         )
         await state.clear()
+
+    # ========== РЕГИСТРАЦИЯ ПРЕПОДАВАТЕЛЯ ==========
+
+async def teacher_register_start(
+    self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
+):
+    """Начало регистрации преподавателя"""
+    if db_user and db_user.user_type == "teacher" and db_user.teacher_id:
+        status = "✅ Верифицирован" if db_user.is_verified else "⏳ Ожидает верификации"
+        await message.answer(
+            f"✅ Вы уже зарегистрированы как преподаватель\n\n"
+            f"Имя: {db_user.teacher.name}\n"
+            f"Статус: {status}"
+        )
+        return
+
+    response = (
+        "👨‍🏫 <b>Регистрация преподавателя</b>\n\n"
+        "Введите ваше ФИО точно так, как оно указано в расписании.\n\n"
+        "<i>Например: Иванов Иван Иванович</i>"
+    )
+    await message.answer(response)
+    await state.set_state(TeacherRegistration.waiting_for_name)
+
+async def teacher_register_confirm(
+    self, message: types.Message, state: FSMContext, bot: Bot
+):
+    """Подтверждение найденного преподавателя"""
+    teacher_name = message.text.strip()
+
+    async with UnitOfWork() as uow:
+        teacher = await uow.teachers.get_by_name(teacher_name)
+
+        if not teacher:
+            await message.answer(
+                "❌ Преподаватель с таким ФИО не найден в базе.\n\n"
+                "Убедитесь, что вы ввели имя точно как в расписании, "
+                "или обратитесь к администратору."
+            )
+            return
+
+        # Проверяем, не привязан ли уже этот Teacher к другому User
+        result = await uow.session.execute(
+            select(User).where(User.teacher_id == teacher.teacher_id)
+        )
+        existing_user = result.scalar_one_or_none()
+
+        if existing_user:
+            await message.answer(
+                "⚠️ Этот преподаватель уже зарегистрирован другим пользователем.\n\n"
+                "Если это ошибка, обратитесь к администратору."
+            )
+            return
+
+        await state.update_data(
+            teacher_id=teacher.teacher_id,
+            teacher_name=teacher.name
+        )
+
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        types.InlineKeyboardButton(
+            text="✅ Да, это я", callback_data="confirm_teacher"
+        )
+    )
+    builder.add(
+        types.InlineKeyboardButton(
+            text="❌ Отмена", callback_data="cancel"
+        )
+    )
+    builder.adjust(1)
+
+    await message.answer(
+        f"Найден преподаватель:\n\n"
+        f"<b>{teacher.name}</b>\n\n"
+        f"Это вы?",
+        reply_markup=builder.as_markup()
+    )
+    await state.set_state(TeacherRegistration.waiting_for_confirmation)
+
+async def teacher_register_complete(
+    self, callback: types.CallbackQuery, state: FSMContext, bot: Bot, db_user: User = None
+):
+    """Завершение регистрации преподавателя"""
+    data = await state.get_data()
+    teacher_id = data["teacher_id"]
+    teacher_name = data["teacher_name"]
+
+    async with UnitOfWork() as uow:
+        # Обновляем пользователя
+        await uow.users.update(
+            user_id=callback.from_user.id,
+            user_type="teacher",
+            teacher_id=teacher_id,
+            is_verified=False  # Требуется верификация админом
+        )
+        await uow.commit()
+
+    # Уведомляем админа
+    try:
+        await bot.send_message(
+            ADMIN_ID,
+            f"🆕 <b>Новая регистрация преподавателя</b>\n\n"
+            f"ФИО: {teacher_name}\n"
+            f"Telegram: @{callback.from_user.username or 'нет username'}\n"
+            f"ID: {callback.from_user.id}\n\n"
+            f"Требуется верификация!"
+        )
+    except Exception as e:
+        print(f"⚠️ Не удалось уведомить админа: {e}")
+
+    await callback.message.edit_text(
+        "✅ <b>Регистрация успешна!</b>\n\n"
+        f"Вы зарегистрированы как: {teacher_name}\n\n"
+        "⏳ Ожидайте верификации администратором.\n"
+        "После одобрения вам станет доступен функционал преподавателя."
+    )
+    await state.clear()
+    await callback.answer()
+
 
     # ========== ОБРАБОТЧИКИ ГЛАВНОГО МЕНЮ ==========
 
