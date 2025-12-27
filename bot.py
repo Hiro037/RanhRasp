@@ -65,6 +65,19 @@ class ScheduleFSM(StatesGroup):
     choosing_month = State()
     waiting_for_file = State()
 
+class TeacherRegistration(StatesGroup):
+    """Состояния регистрации преподавателя"""
+    waiting_for_name = State()
+    waiting_for_confirmation = State()
+
+
+class TeacherSchedule(StatesGroup):
+    """Состояния работы с расписанием преподавателя"""
+    choosing_date = State()
+    choosing_lesson = State()
+    writing_comment = State()
+
+
 
 # ========== УТИЛИТЫ ==========
 
@@ -543,6 +556,65 @@ class KeyboardManager:
 
         builder.adjust(1)
         return builder.as_markup()
+    
+class NotificationManager:
+    """Менеджер уведомлений студентам"""
+
+    @staticmethod
+    async def notify_students_about_comment(
+        bot: Bot,
+        lesson: Lesson,
+        comment: "LessonComment"
+    ) -> tuple[int, int]:
+        """
+        Отправить уведомления студентам о новом комментарии
+
+        Args:
+            bot: Экземпляр бота
+            lesson: Занятие, к которому добавлен комментарий
+            comment: Объект комментария
+
+        Returns:
+            tuple[int, int]: (успешно отправлено, неудачно)
+        """
+        import asyncio
+        
+        async with UnitOfWork() as uow:
+            # Получаем всех студентов группы
+            students = await uow.users.get_students_by_group(lesson.group_id)
+
+            # Формируем сообщение
+            lesson_date = lesson.start_datetime.strftime("%d.%m.%Y")
+            lesson_time = lesson.start_datetime.strftime("%H:%M")
+
+            message_text = (
+                f"📢 <b>Новый комментарий к занятию</b>\n\n"
+                f"📚 {lesson.subject.name}\n"
+                f"📅 {lesson_date} в {lesson_time}\n"
+                f"👨‍🏫 {lesson.teacher.name}\n"
+                f"🚪 Аудитория {lesson.classroom}\n\n"
+                f"💬 <b>Комментарий:</b>\n"
+                f"<i>{comment.comment_text}</i>"
+            )
+
+            # Отправляем уведомления
+            success_count = 0
+            failed_count = 0
+
+            for student in students:
+                try:
+                    await bot.send_message(
+                        chat_id=student.user_id,
+                        text=message_text
+                    )
+                    success_count += 1
+                    await asyncio.sleep(0.05)  # Защита от rate limit
+                except Exception as e:
+                    print(f"⚠️ Не удалось отправить уведомление {student.user_id}: {e}")
+                    failed_count += 1
+
+            return success_count, failed_count
+
 
 
 # ========== ОСНОВНОЙ КЛАСС БОТА ==========
