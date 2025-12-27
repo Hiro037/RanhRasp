@@ -125,12 +125,12 @@ def greeting_by_time() -> str:
 
 async def create_schedule_text(selected_date: date, group_name: str) -> str:
     """
-    Создает текстовое описание расписания на дату
-
+    Создает текстовое описание расписания на дату с комментариями
+    
     Args:
         selected_date: Дата расписания
         group_name: Название группы
-
+        
     Returns:
         Текст расписания
     """
@@ -143,7 +143,7 @@ async def create_schedule_text(selected_date: date, group_name: str) -> str:
         # Получаем занятия на дату
         lessons = await uow.lessons.get_by_group_and_date(group.group_id, selected_date)
 
-        answer = f"Расписание на {format_date_readable_manual(selected_date)}:\n\n"
+        answer = f"📅 Расписание на {format_date_readable_manual(selected_date)}:\n\n"
 
         if lessons:
             for lesson in lessons:
@@ -155,6 +155,12 @@ async def create_schedule_text(selected_date: date, group_name: str) -> str:
                 )
                 if lesson.lesson_type:
                     answer += f"📝 {lesson.lesson_type}\n"
+                
+                # НОВОЕ: Проверяем комментарии
+                comments = await uow.lesson_comments.get_by_lesson(lesson.lesson_id)
+                if comments:
+                    answer += f"💬 <b>Комментарий:</b> <i>{comments[0].comment_text}</i>\n"
+                
                 answer += "\n"
         else:
             answer += "✨ У вас нет занятий в этот день"
@@ -1347,6 +1353,12 @@ class ScheduleBot:
 
             await state.update_data(last_message_id=sent.message_id)
             await state.update_data(selected_date=selected_date)
+            
+            # НОВОЕ: Проверяем наличие комментариев к занятиям
+            await self._send_comments_if_exist(
+                callback.message.chat.id, group_name, selected_date, bot
+            )
+            
             await callback.answer()
 
         except TelegramBadRequest as e:
@@ -1361,7 +1373,77 @@ class ScheduleBot:
             text = await create_schedule_text(selected_date, group_name)
             kb = self.keyboard_manager.navigation_keyboard(selected_date)
             await callback.message.answer(text, reply_markup=kb)
+            
+            # НОВОЕ: И для текстового расписания тоже проверяем комментарии
+            await self._send_comments_if_exist(
+                callback.message.chat.id, group_name, selected_date, bot
+            )
+            
             await callback.answer()
+
+    async def _send_comments_if_exist(
+        self, chat_id: int, group_name: str, selected_date: date, bot: Bot
+    ):
+        """
+        Проверить наличие комментариев к занятиям и отправить их отдельным сообщением
+        
+        Args:
+            chat_id: ID чата для отправки
+            group_name: Название группы
+            selected_date: Дата расписания
+            bot: Экземпляр бота
+        """
+        async with UnitOfWork() as uow:
+            # Получаем группу
+            group = await uow.groups.get_by_name(group_name)
+            if not group:
+                return
+            
+            # Получаем занятия на дату
+            lessons = await uow.lessons.get_by_group_and_date(
+                group.group_id, selected_date
+            )
+            
+            # Собираем занятия с комментариями
+            lessons_with_comments = []
+            for lesson in lessons:
+                comments = await uow.lesson_comments.get_by_lesson(lesson.lesson_id)
+                if comments:
+                    lessons_with_comments.append({
+                        'lesson': lesson,
+                        'comments': comments
+                    })
+            
+            # Если есть комментарии - отправляем
+            if lessons_with_comments:
+                message_text = "💬 <b>Комментарии преподавателей:</b>\n\n"
+                
+                for item in lessons_with_comments:
+                    lesson = item['lesson']
+                    lesson_time = lesson.start_datetime.strftime("%H:%M")
+                    
+                    message_text += (
+                        f"📚 {lesson_time} - {lesson.subject.name}\n"
+                        f"👨‍🏫 {lesson.teacher.name}\n"
+                    )
+                    
+                    # Добавляем все активные комментарии
+                    for comment in item['comments']:
+                        comment_date = comment.created_at.strftime("%d.%m %H:%M")
+                        message_text += (
+                            f"💬 <i>{comment.comment_text}</i>\n"
+                            f"   <code>от {comment_date}</code>\n"
+                        )
+                    
+                    message_text += "\n"
+                
+                # Отправляем сообщение с комментариями
+                try:
+                    await bot.send_message(chat_id, message_text)
+                except Exception as e:
+                    print(f"⚠️ Ошибка отправки комментариев: {e}")
+
+
 
     async def choose_another_date(
         self, callback: types.CallbackQuery, state: FSMContext, bot: Bot
