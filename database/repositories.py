@@ -11,7 +11,7 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from database.models import Group, Lesson, Subject, Teacher, User, UserRequest
+from database.models import Group, Lesson, Subject, Teacher, User, UserRequest, LessonComment
 
 # ========== USER REPOSITORY ==========
 
@@ -553,7 +553,6 @@ class LessonCommentRepository:
         self, lesson_id: int, teacher_id: int, comment_text: str
     ) -> LessonComment:
         """Создать новый комментарий"""
-        from database.models import LessonComment
         
         comment = LessonComment(
             lesson_id=lesson_id,
