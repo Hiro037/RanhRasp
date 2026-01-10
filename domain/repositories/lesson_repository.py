@@ -220,3 +220,75 @@ class ILessonRepository(IBaseRepository[Lesson]):
             Количество занятий
         """
         pass
+
+    @abstractmethod
+    async def get_by_groups(
+            self,
+            group_ids: List[int],
+            start_date: Optional[date] = None,
+            end_date: Optional[date] = None,
+            limit: Optional[int] = None,
+            offset: Optional[int] = None
+    ) -> List[Lesson]:
+        """
+        Получить занятия для нескольких групп одновременно
+
+        Args:
+            group_ids: Список ID групп
+            start_date: Начальная дата (опционально)
+            end_date: Конечная дата (опционально)
+            limit: Максимальное количество
+            offset: Смещение
+
+        Returns:
+            Список занятий, в которых участвует хотя бы одна из групп
+        """
+        pass
+
+    @abstractmethod
+    async def get_combined_lessons(
+            self,
+            start_date: Optional[date] = None,
+            end_date: Optional[date] = None,
+            teacher_id: Optional[int] = None,
+            limit: Optional[int] = None,
+            offset: Optional[int] = None
+    ) -> List[Lesson]:
+        """
+        Получить только совмещенные занятия (с несколькими группами)
+
+        Args:
+            start_date: Начальная дата (опционально)
+            end_date: Конечная дата (опционально)
+            teacher_id: Фильтр по преподавателю (опционально)
+            limit: Максимальное количество
+            offset: Смещение
+
+        Returns:
+            Список совмещенных занятий (где len(group_ids) > 1)
+        """
+        pass
+
+    @abstractmethod
+    async def find_identical_lessons(
+            self,
+            lesson: Lesson,
+            tolerance_minutes: int = 5
+    ) -> List[Lesson]:
+        """
+        Найти идентичные занятия для объединения
+
+        Поиск занятий с одинаковым:
+        - time_slot (с допуском tolerance_minutes)
+        - teacher_id
+        - subject_id
+        - classroom
+
+        Args:
+            lesson: Занятие для поиска аналогов
+            tolerance_minutes: Допустимое отклонение по времени
+
+        Returns:
+            Список идентичных занятий (кандидаты на объединение)
+        """
+        pass

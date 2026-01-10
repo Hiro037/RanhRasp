@@ -6,7 +6,7 @@ Comment Domain Events
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from domain.events.domain_event import DomainEvent
 
@@ -23,6 +23,7 @@ class CommentAddedEvent(DomainEvent):
     lesson_id: int  # ID занятия
     teacher_id: int  # ID преподавателя
     comment_text: str  # Текст комментария
+    group_ids: List[int]
 
     def to_dict(self) -> dict:
         """Сериализация события"""
@@ -32,6 +33,7 @@ class CommentAddedEvent(DomainEvent):
             "lesson_id": self.lesson_id,
             "teacher_id": self.teacher_id,
             "comment_text": self.comment_text[:100] + "..." if len(self.comment_text) > 100 else self.comment_text,
+            "group_ids": self.group_ids,
         })
         return data
 

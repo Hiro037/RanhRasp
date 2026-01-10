@@ -13,7 +13,7 @@ from domain.value_objects.time_slot import TimeSlot
 from domain.value_objects.classroom import Classroom
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Lesson:
     """
     Aggregate Root для занятия
@@ -30,7 +30,7 @@ class Lesson:
     lesson_type: Optional[str] = None  # "Лекция", "Семинар", "Практика"
 
     # Relationships (IDs, не объекты!)
-    group_id: int
+    group_ids: List[int] = field(default_factory=list)
     teacher_id: int
     subject_id: int
 
@@ -42,12 +42,19 @@ class Lesson:
 
     def __post_init__(self):
         """Валидация после создания"""
+        if not self.group_ids or len(self.group_ids) == 0:
+            raise ValueError("Lesson must have at least one group")
+
+        # Убираем дубликаты
+        object.__setattr__(self, 'group_ids', list(set(self.group_ids)))
+
         self._validate()
 
     def _validate(self):
         """Валидация бизнес-правил"""
-        if self.group_id <= 0:
-            raise ValueError("Invalid group_id")
+        for group_id in self.group_ids:
+            if group_id <= 0:
+                raise ValueError("Invalid group_id")
 
         if self.teacher_id <= 0:
             raise ValueError("Invalid teacher_id")
@@ -59,6 +66,76 @@ class Lesson:
             raise ValueError("Invalid time slot: end must be after start")
 
     # ========== BUSINESS LOGIC ==========
+
+    def is_combined_lesson(self) -> bool:
+        """Является ли занятие совмещенным (для нескольких групп)"""
+        return len(self.group_ids) > 1
+
+    def has_group(self, group_id: int) -> bool:
+        """Участвует ли группа в этом занятии"""
+        return group_id in self.group_ids
+
+    def get_all_group_ids(self) -> List[int]:
+        """Получить все ID групп"""
+        return self.group_ids.copy()
+
+    def add_group(self, group_id: int) -> None:
+        """
+        Добавить группу к занятию (сделать совмещенным)
+
+        Args:
+            group_id: ID группы для добавления
+
+        Raises:
+            ValueError: если группа уже добавлена
+        """
+        if group_id <= 0:
+            raise ValueError("Invalid group_id")
+
+        if group_id in self.group_ids:
+            raise ValueError(f"Group {group_id} already added to lesson")
+
+        self.group_ids.append(group_id)
+
+        # Генерируем событие
+        from domain.events.lesson_events import GroupAddedToLessonEvent
+        self._events.append(
+            GroupAddedToLessonEvent(
+                lesson_id=self.id,
+                group_id=group_id,
+                all_group_ids=self.group_ids.copy(),
+                timestamp=datetime.now()
+            )
+        )
+
+    def remove_group(self, group_id: int) -> None:
+        """
+        Убрать группу из занятия
+
+        Args:
+            group_id: ID группы для удаления
+
+        Raises:
+            ValueError: если это последняя группа или группа не найдена
+        """
+        if group_id not in self.group_ids:
+            raise ValueError(f"Group {group_id} not found in lesson")
+
+        if len(self.group_ids) == 1:
+            raise ValueError("Cannot remove last group from lesson")
+
+        self.group_ids.remove(group_id)
+
+        # Генерируем событие
+        from domain.events.lesson_events import GroupRemovedFromLessonEvent
+        self._events.append(
+            GroupRemovedFromLessonEvent(
+                lesson_id=self.id,
+                group_id=group_id,
+                remaining_group_ids=self.group_ids.copy(),
+                timestamp=datetime.now()
+            )
+        )
 
     def add_comment(self, teacher_id: int, text: str) -> Comment:
         """
@@ -99,6 +176,7 @@ class Lesson:
                 teacher_id=teacher_id,
                 comment_id=comment.id,
                 comment_text=text,
+                group_ids=self.group_ids.copy(),
                 timestamp=datetime.now()
             )
         )

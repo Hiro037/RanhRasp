@@ -6,7 +6,7 @@ Lesson Domain Events
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from domain.events.domain_event import DomainEvent
 
@@ -20,7 +20,7 @@ class LessonCreatedEvent(DomainEvent):
     """
 
     lesson_id: int  # ID занятия
-    group_id: int  # ID группы
+    group_ids: List[int]  # ID групп
     teacher_id: int  # ID преподавателя
     subject_id: int  # ID предмета
     start_time: datetime  # Начало занятия
@@ -31,7 +31,7 @@ class LessonCreatedEvent(DomainEvent):
         data = super().to_dict()
         data.update({
             "lesson_id": self.lesson_id,
-            "group_id": self.group_id,
+            "group_ids": self.group_ids,
             "teacher_id": self.teacher_id,
             "subject_id": self.subject_id,
             "start_time": self.start_time.isoformat(),
@@ -49,7 +49,7 @@ class LessonUpdatedEvent(DomainEvent):
     """
 
     lesson_id: int  # ID занятия
-    group_id: int  # ID группы
+    group_ids: List[int]  # ID групп
     changed_fields: list[str]  # Список измененных полей
 
     def to_dict(self) -> dict:
@@ -57,7 +57,7 @@ class LessonUpdatedEvent(DomainEvent):
         data = super().to_dict()
         data.update({
             "lesson_id": self.lesson_id,
-            "group_id": self.group_id,
+            "group_ids": self.group_ids,
             "changed_fields": self.changed_fields,
         })
         return data
@@ -138,5 +138,50 @@ class LessonEndedEvent(DomainEvent):
             "group_id": self.group_id,
             "teacher_id": self.teacher_id,
             "subject_id": self.subject_id,
+        })
+        return data
+
+@dataclass(frozen=True, kw_only=True)
+class GroupAddedToLessonEvent(DomainEvent):
+    """
+    Событие: группа добавлена к занятию (стало совмещенным)
+
+    Генерируется когда к занятию добавляется еще одна группа.
+    """
+
+    lesson_id: int
+    group_id: int  # Добавленная группа
+    all_group_ids: List[int]  # Все группы после добавления
+
+    def to_dict(self) -> dict:
+        """Сериализация события"""
+        data = super().to_dict()
+        data.update({
+            "lesson_id": self.lesson_id,
+            "group_id": self.group_id,
+            "all_group_ids": self.all_group_ids,
+        })
+        return data
+
+
+@dataclass(frozen=True, kw_only=True)
+class GroupRemovedFromLessonEvent(DomainEvent):
+    """
+    Событие: группа удалена из совмещенного занятия
+
+    Генерируется когда группа убирается из совмещенного занятия.
+    """
+
+    lesson_id: int
+    group_id: int  # Удаленная группа
+    remaining_group_ids: List[int]  # Оставшиеся группы
+
+    def to_dict(self) -> dict:
+        """Сериализация события"""
+        data = super().to_dict()
+        data.update({
+            "lesson_id": self.lesson_id,
+            "group_id": self.group_id,
+            "remaining_group_ids": self.remaining_group_ids,
         })
         return data

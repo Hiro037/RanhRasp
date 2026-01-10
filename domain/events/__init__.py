@@ -30,6 +30,8 @@ from domain.events.lesson_events import (
     LessonCancelledEvent,
     LessonStartedEvent,
     LessonEndedEvent,
+    GroupAddedToLessonEvent,
+    GroupRemovedFromLessonEvent,
 )
 
 # Teacher events
@@ -61,6 +63,8 @@ __all__ = [
     "LessonCancelledEvent",
     "LessonStartedEvent",
     "LessonEndedEvent",
+    "GroupAddedToLessonEvent",
+    "GroupRemovedFromLessonEvent",
 
     # Teacher events
     "TeacherRegisteredEvent",
