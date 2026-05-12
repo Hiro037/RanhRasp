@@ -28,8 +28,11 @@ from dotenv import load_dotenv
 from database.models import Group, User
 from database.repositories import UnitOfWork
 from jinja_renderer import html_to_image, render_html
-from test_parse import (convert_doc_to_docx, import_schedule_to_db_async,
-                        parse_docx_schedule)
+from test_parse import (
+    convert_doc_to_docx,
+    import_schedule_to_db_async,
+    parse_docx_schedule,
+)
 
 load_dotenv()
 
@@ -156,7 +159,7 @@ class ScheduleImageCache:
     """Класс для управления кэшем изображений расписания"""
 
     def __init__(self, max_size: int = 100, ttl_hours: int = 24):
-        self._cache: Dict[str, Tuple[BytesIO, str, datetime]] = {}
+        self._cache: Dict[str, Tuple[BytesIO, str, datetime, str]] = {}
         self.max_size = max_size
         self.ttl_hours = ttl_hours
 
@@ -170,11 +173,14 @@ class ScheduleImageCache:
         cache_key = self._generate_cache_key(selected_date, group)
 
         if cache_key in self._cache:
-            image_data, caption, timestamp = self._cache[cache_key]
+            image_data, caption, timestamp, _group = self._cache[cache_key]
 
             # Проверяем не устарело ли изображение
             if datetime.now() - timestamp < timedelta(hours=self.ttl_hours):
-                return image_data, caption
+                image_data.seek(0)
+                return BytesIO(image_data.getvalue()), caption
+
+            del self._cache[cache_key]
 
         return None
 
@@ -193,7 +199,13 @@ class ScheduleImageCache:
                 del self._cache[key]
 
         # Сохраняем новую запись
-        self._cache[cache_key] = (image_data, caption, datetime.now())
+        image_data.seek(0)
+        self._cache[cache_key] = (
+            BytesIO(image_data.getvalue()),
+            caption,
+            datetime.now(),
+            group,
+        )
 
     def clear(self) -> int:
         """Очистить весь кэш и вернуть количество удаленных элементов"""
@@ -205,8 +217,8 @@ class ScheduleImageCache:
         """Очистить кэш для конкретной группы"""
         keys_to_remove = [
             key
-            for key in self._cache.keys()
-            if key.endswith(hashlib.md5(group_name.encode()).hexdigest()[-8:])
+            for key, (_image, _caption, _timestamp, group) in self._cache.items()
+            if group == group_name
         ]
         for key in keys_to_remove:
             del self._cache[key]
@@ -519,7 +531,7 @@ class KeyboardManager:
             )
         )
 
-        builder.adjust(adjust, 1, 1)
+        builder.adjust(*(filter(None, [adjust, 1, 1])))
         return builder.as_markup()
 
     @staticmethod
@@ -735,7 +747,7 @@ class ScheduleBot:
         self, message: types.Message, state: FSMContext, bot: Bot, db_user: User = None
     ):
         """Получение отзыва от пользователя"""
-        text = message.text
+        text = message.text or ""
 
         # Формируем информацию о пользователе
         user_info = (
@@ -745,6 +757,13 @@ class ScheduleBot:
         )
         if db_user and db_user.group:
             user_info += f" | Группа: {db_user.group.group_name}"
+
+        if not ADMIN_ID:
+            await message.answer(
+                "⚠️ ADMIN_ID не настроен, поэтому отзыв не отправлен администратору."
+            )
+            await state.clear()
+            return
 
         # Отправляем админу
         try:
@@ -854,7 +873,9 @@ class ScheduleBot:
         # Добавляем кнопку "Назад в меню"
         builder = InlineKeyboardBuilder()
         builder.add(
-            types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="main_menu")
+            types.InlineKeyboardButton(
+                text="⬅️ Назад в меню", callback_data="main_menu"
+            )
         )
 
         await self.message_manager.send_bot_message(

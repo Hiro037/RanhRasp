@@ -8,13 +8,17 @@ from typing import List, Optional
 
 from dotenv import load_dotenv
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text
-from sqlalchemy.ext.asyncio import (AsyncAttrs, AsyncSession,
-                                    async_sessionmaker, create_async_engine)
+from sqlalchemy.ext.asyncio import (
+    AsyncAttrs,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 load_dotenv()
 
-DB_URL = os.getenv("DB_URL")
+DB_URL = os.getenv("DB_URL") or "sqlite+aiosqlite:///students_lessons.db"
 
 
 # Важно: для SQLite async используем aiosqlite://
@@ -272,15 +276,19 @@ class Lesson(Base):
 # ========== ИНИЦИАЛИЗАЦИЯ БД ==========
 
 # Создание асинхронного движка
-print(f"DB_URL: {DB_URL}")
-engine = create_async_engine(
-    DB_URL,
-    echo=False,  # Логирование SQL запросов (для отладки)
-    pool_size=10,  # Размер пула соединений
-    max_overflow=20,  # Максимальное количество дополнительных соединений
-    pool_pre_ping=True,  # Проверка соединения перед использованием
-    pool_recycle=3600,  # Переиспользование соединений (1 час)
-)
+# SQLite/aiosqlite не поддерживает параметры пула, которые нужны PostgreSQL/MySQL.
+engine_kwargs = {
+    "echo": os.getenv("SQL_ECHO", "false").lower() == "true",
+    "pool_pre_ping": True,
+}
+if not DB_URL.startswith("sqlite"):
+    engine_kwargs.update(
+        pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
+        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
+        pool_recycle=int(os.getenv("DB_POOL_RECYCLE", "3600")),
+    )
+
+engine = create_async_engine(DB_URL, **engine_kwargs)
 
 # Создание фабрики асинхронных сессий
 async_session_maker = async_sessionmaker(

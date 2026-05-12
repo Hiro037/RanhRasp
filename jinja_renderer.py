@@ -12,6 +12,7 @@
 """
 
 import asyncio
+import tempfile
 from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
@@ -70,14 +71,19 @@ def format_date_readable(d: date) -> str:
 
 
 def get_topic_by_group(group_name: str) -> str:
-    """Определение направления по названию группы"""
-    if group_name.startswith("Э"):
+    """Определение направления по названию группы.
+
+    Поддерживает как кириллические, так и латинские обозначения из старых файлов
+    (например, ``E-43`` и ``Yu-41``).
+    """
+    normalized = group_name.upper()
+    if normalized.startswith(("Э", "E")):
         return "ЭКОНОМИКА"
-    elif group_name.startswith("М"):
+    elif normalized.startswith(("М", "M")):
         return "МЕНЕДЖМЕНТ"
-    elif group_name.startswith("Г"):
+    elif normalized.startswith(("Г", "GMU")):
         return "ГМУ"
-    elif group_name.startswith("Ю"):
+    elif normalized.startswith(("Ю", "YU")):
         return "ЮРИСПРУДЕНЦИЯ"
     else:
         return group_name
@@ -186,11 +192,16 @@ async def html_to_image(html: str) -> BytesIO:
     Raises:
         Exception: При ошибке рендеринга
     """
-    # Сохраняем HTML во временный файл
-    html_path = TEMPLATES_DIR / "_rendered_temp.html"
+    # Сохраняем HTML во временный файл. Именованный временный файл исключает
+    # гонки между несколькими одновременными запросами на генерацию картинки.
+    temp_file = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".html", encoding="utf-8", delete=False
+    )
+    html_path = Path(temp_file.name)
 
     try:
-        html_path.write_text(html, encoding="utf-8")
+        with temp_file:
+            temp_file.write(html)
 
         async with async_playwright() as p:
             # Запускаем браузер

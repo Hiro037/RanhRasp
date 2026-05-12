@@ -10,6 +10,7 @@
 import re
 import subprocess
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from docx import Document
@@ -27,7 +28,8 @@ def parse_time_range(time_str: str) -> tuple[datetime.time, datetime.time]:
     Returns:
         tuple[time, time]: Время начала и окончания
     """
-    start_str, end_str = time_str.split("-")
+    normalized = time_str.replace("–", "-").replace("—", "-")
+    start_str, end_str = normalized.split("-", maxsplit=1)
     start_str = start_str.replace(".", ":")
     end_str = end_str.replace(".", ":")
     t_start = datetime.strptime(start_str.strip(), "%H:%M").time()
@@ -129,7 +131,7 @@ def parse_docx_schedule(docx_path: str, group_name: str) -> List[Dict]:
     lessons = []
 
     # Регулярное выражение для даты: "01.11.25 г Суббота" или "01.11.25 Суббота"
-    date_re = re.compile(r"(\d{2}\.\d{2}\.\d{2})\s*г?\s+(\S+)")
+    date_re = re.compile(r"(\d{2}\.\d{2}\.\d{2})(?:\s*г?\s+\S+)?")
 
     current_date = None
 
@@ -230,6 +232,22 @@ async def import_schedule_to_db_async(lessons: List[Dict], uow) -> int:
     groups_cache = {}
 
     print("📦 Начало импорта расписания...")
+
+    # Перед повторной загрузкой удаляем старые занятия в затронутом диапазоне дат.
+    # Это делает импорт идемпотентным и не плодит дубликаты после исправления файла.
+    lessons_by_group = {}
+    for lesson_data in lessons:
+        lessons_by_group.setdefault(lesson_data["group"], []).append(lesson_data)
+
+    for group_name, group_lessons in lessons_by_group.items():
+        group = await uow.groups.get_by_name(group_name)
+        if group:
+            dates = [item["start_datetime"].date() for item in group_lessons]
+            deleted = await uow.lessons.delete_by_group_and_range(
+                group.group_id, min(dates), max(dates)
+            )
+            if deleted:
+                print(f"   🧹 Удалено старых занятий для {group_name}: {deleted}")
 
     for idx, lesson_data in enumerate(lessons, 1):
         try:
