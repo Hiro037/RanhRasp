@@ -8,6 +8,8 @@ from typing import List, Optional, Tuple, Callable, Awaitable
 from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+from core.config import settings
 from core.models import (
     Base, User, Teacher, Group, Subject, Classroom, Lesson, LessonGroup, GroupUser,
     Platform, ScheduleMessageType, LessonType, LogStatus, TZ, get_current_time, Log
@@ -30,12 +32,12 @@ async def get_user_by_platform_id(db: AsyncSession, platform: Platform, platform
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
-async def create_user(db: AsyncSession, platform: Platform, platform_id: int, name: str) -> User:
+async def create_user(db: AsyncSession, platform: Platform, platform_id: int, name: str, is_admin: bool) -> User:
     user = User(
         tg_id=platform_id if platform == Platform.TELEGRAM else None,
         vk_id=platform_id if platform == Platform.VK else None,
         name=name,
-        is_admin=False,
+        is_admin=is_admin,
         is_notification_on=True,
         schedule_message_type=ScheduleMessageType.TEXT
     )
@@ -47,7 +49,10 @@ async def create_user(db: AsyncSession, platform: Platform, platform_id: int, na
 async def get_or_create_user(db: AsyncSession, platform: Platform, platform_id: int, name: str) -> User:
     user = await get_user_by_platform_id(db, platform, platform_id)
     if not user:
-        user = await create_user(db, platform, platform_id, name)
+        if (platform == Platform.TELEGRAM and platform_id in settings.admin_tg_ids) or (platform == Platform.VK and platform_id in settings.admin_vk_ids):
+            user = await create_user(db, platform, platform_id, name, is_admin=True)
+        else:
+            user = await create_user(db, platform, platform_id, name, is_admin=False)
     else:
         # update last_activity and name
         user.last_activity = get_current_time()

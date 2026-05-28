@@ -37,25 +37,43 @@ class Settings(BaseModel):
     vk_group_token: str = os.getenv("VK_GROUP_TOKEN", "")
     vk_group_id: int = int(os.getenv("VK_GROUP_ID", "0"))
 
-    # Admin
+    # Admin - загружаем из переменных окружения
     admin_tg_ids: List[int] = []
     admin_vk_ids: List[int] = []
 
     @field_validator("admin_tg_ids", mode="before")
     @classmethod
     def parse_admin_tg_ids(cls, v):
-        if isinstance(v, str):
+        """Парсит строку с TG ID администраторов из env (через запятую)"""
+        # Если значение уже список, возвращаем как есть
+        if isinstance(v, list):
+            return v
+        # Если строка, парсим
+        if isinstance(v, str) and v:
             return [int(x.strip()) for x in v.split(",") if x.strip()]
-        return v
+        # Если значение не задано, возвращаем пустой список
+        return []
 
     @field_validator("admin_vk_ids", mode="before")
     @classmethod
     def parse_admin_vk_ids(cls, v):
-        if isinstance(v, str):
+        """Парсит строку с VK ID администраторов из env (через запятую)"""
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str) and v:
             return [int(x.strip()) for x in v.split(",") if x.strip()]
-        return v
+        return []
 
     # Timezone
     timezone: str = os.getenv("TIMEZONE", "Asia/Yekaterinburg")
 
+    class Config:
+        # Позволяет загружать значения из .env через переменные окружения
+        extra = "ignore"
+
+
 settings = Settings()
+
+# Для отладки - можно раскомментировать
+# print(f"Loaded admin TG IDs: {settings.admin_tg_ids}")
+# print(f"Loaded admin VK IDs: {settings.admin_vk_ids}")
