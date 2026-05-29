@@ -46,21 +46,40 @@ async def create_user(db: AsyncSession, platform: Platform, platform_id: int, na
     await db.refresh(user)
     return user
 
+
 async def get_or_create_user(db: AsyncSession, platform: Platform, platform_id: int, name: str) -> User:
+    # Приводим admin IDs к int для безопасного сравнения
+    admin_ids = settings.admin_tg_ids if platform == Platform.TELEGRAM else settings.admin_vk_ids
+    should_be_admin = platform_id in [int(x) for x in admin_ids]
+
     user = await get_user_by_platform_id(db, platform, platform_id)
     if not user:
-        if (platform == Platform.TELEGRAM and platform_id in settings.admin_tg_ids) or (platform == Platform.VK and platform_id in settings.admin_vk_ids):
-            user = await create_user(db, platform, platform_id, name, is_admin=True)
-        else:
-            user = await create_user(db, platform, platform_id, name, is_admin=False)
+        user = User(
+            tg_id=platform_id if platform == Platform.TELEGRAM else None,
+            vk_id=platform_id if platform == Platform.VK else None,
+            name=name,
+            is_admin=should_be_admin,  # сразу ставим флаг из .env
+            is_notification_on=True,
+            schedule_message_type=ScheduleMessageType.TEXT
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
     else:
-        # update last_activity and name
         user.last_activity = get_current_time()
         if user.name != name:
             user.name = name
+
+        # 🔑 КРИТИЧНО: обновляем статус админа при каждом входе
+        if should_be_admin and not user.is_admin:
+            user.is_admin = True
+        elif not should_be_admin and user.is_admin:
+            # Если ID убрали из .env, статус не снимаем автоматически (безопаснее)
+            pass
+
         await db.commit()
         await db.refresh(user)
-    # eager load groups for later use
+
     await db.refresh(user, attribute_names=["groups"])
     return user
 

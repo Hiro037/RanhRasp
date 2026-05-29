@@ -132,25 +132,28 @@ def notification_keyboard():
 
 # ---------- Helper function to check if user is registered ----------
 async def is_user_registered(user_id: int) -> tuple[bool, str | None]:
-    """Check if user is registered. Returns (is_registered, role)."""
     async with AsyncSessionLocal() as db:
         user = await get_user_by_platform_id(db, Platform.TELEGRAM, user_id)
         if not user:
             return False, None
-        # Check registration status without triggering lazy loading
+
+        # 1. Администратор (важнее всего)
+        if user.is_admin:
+            return True, "admin"
+
+        # 2. Преподаватель
         if user.teacher_profile_id is not None:
             return True, "teacher"
-        # Explicitly check groups using a query to avoid lazy loading
+
+        # 3. Студент (есть хотя бы одна группа)
         from core.models import GroupUser
         from sqlalchemy import select
         result = await db.execute(
             select(GroupUser).where(GroupUser.user_id == user.id).limit(1)
         )
-        has_group = result.first() is not None
-        if has_group:
+        if result.first() is not None:
             return True, "student"
-        if user.is_admin:
-            return True, "admin"
+
     return False, None
 
 # ---------- Command /start ----------
@@ -159,25 +162,30 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     async with AsyncSessionLocal() as db:
         user = await get_or_create_user(db, Platform.TELEGRAM, message.from_user.id, message.from_user.full_name)
-        # Check if user has groups or teacher profile
+
+        # 🚀 АБСОЛЮТНЫЙ ПРИОРИТЕТ: если админ -> сразу полное меню
+        if user.is_admin:
+            await message.answer(
+                get_welcome_text(user.name, "admin"),
+                reply_markup=get_main_menu_keyboard("admin")
+            )
+            return
+
+        # Для обычных пользователей: проверяем, зарегистрированы ли они
         from core.models import GroupUser
         from sqlalchemy import select
-        result = await db.execute(
-            select(GroupUser).where(GroupUser.user_id == user.id).limit(1)
-        )
+        result = await db.execute(select(GroupUser).where(GroupUser.user_id == user.id).limit(1))
         has_group = result.first() is not None
 
         if user.teacher_profile_id is not None or has_group:
             role = get_user_role(user)
-            welcome_text = get_welcome_text(user.name, role)
-            await message.answer(
-                welcome_text,
-                reply_markup=get_main_menu_keyboard(role)
-            )
+            await message.answer(get_welcome_text(user.name, role), reply_markup=get_main_menu_keyboard(role))
             return
-    # Новая регистрация
+
+    # Новая регистрация только для НЕ-админов
     await message.answer("🎓 Добро пожаловать в бот расписания!\n\nКто вы?", reply_markup=role_keyboard())
     await state.set_state(RegState.role)
+
 
 def get_welcome_text(name: str, role: str) -> str:
     """Generate welcome message based on role."""
@@ -255,16 +263,26 @@ async def process_notification(callback: types.CallbackQuery, state: FSMContext)
     data = await state.get_data()
     group_id = data.get("group_id")
     msg_type = data.get("message_type")
+
     async with AsyncSessionLocal() as db:
         user = await get_user_by_platform_id(db, Platform.TELEGRAM, callback.from_user.id)
         if user:
             await set_student_group(db, user.id, group_id)
             await update_notification_setting(db, user.id, notif_enabled)
             await update_schedule_message_type(db, user.id, msg_type)
-    await callback.message.edit_text(
-        "✅ Регистрация завершена!\n\n"
-        "Теперь вы можете пользоваться ботом через меню."
-    )
+
+            await callback.message.edit_text(
+                "✅ Регистрация завершена!\n\nТеперь вы можете пользоваться ботом через меню.")
+
+            # После регистрации проверяем, не стал ли пользователь админом
+            role = get_user_role(user)
+            await callback.message.answer(
+                get_welcome_text(user.name, role),
+                reply_markup=get_main_menu_keyboard(role)
+            )
+            await state.clear()
+            await callback.answer()
+
     # Show main menu after registration
     async with AsyncSessionLocal() as db:
         user = await get_user_by_platform_id(db, Platform.TELEGRAM, callback.from_user.id)
@@ -314,6 +332,7 @@ async def process_schedule_callback(callback: types.CallbackQuery):
     data = callback.data
     user_id = callback.from_user.id
 
+
     is_registered, _ = await is_user_registered(user_id)
     if not is_registered:
         await callback.message.answer("Сначала зарегистрируйтесь: /start")
@@ -332,7 +351,9 @@ async def process_schedule_callback(callback: types.CallbackQuery):
         delta = timedelta(days=1)
         cur = start_date
         while cur <= end_date:
-            day_text = await get_schedule_text_cached(user_id, cur)
+            async with AsyncSessionLocal() as db:
+                user = await get_user_by_platform_id(db, Platform.TELEGRAM, callback.from_user.id)
+            day_text = await get_schedule_text_cached(user.id, cur)
             text_parts.append(day_text)
             cur += delta
         full_text = "\n\n".join(text_parts)
@@ -346,13 +367,13 @@ async def process_schedule_callback(callback: types.CallbackQuery):
         date_str = data.split("_")[1]
         target_date = date.fromisoformat(date_str)
         async with AsyncSessionLocal() as db:
-            user = await get_user_by_id(db, user_id)
+            user =  await get_user_by_platform_id(db, Platform.TELEGRAM, callback.from_user.id)
             msg_type = user.schedule_message_type if user else ScheduleMessageType.TEXT
             role = get_user_role(user) if user else "student"
 
             if msg_type == ScheduleMessageType.PICTURE and role == "student":
                 try:
-                    img_bytes = await get_schedule_image_cached(user_id, target_date)
+                    img_bytes = await get_schedule_image_cached(user.id, target_date)
                     if img_bytes:
                         await callback.message.answer_photo(
                             BufferedInputFile(img_bytes, filename="schedule.png"),
@@ -366,7 +387,7 @@ async def process_schedule_callback(callback: types.CallbackQuery):
                 except Exception as e:
                     await callback.message.edit_text(f"❌ Ошибка: {e}")
             else:
-                text = await get_schedule_text_cached(user_id, target_date)
+                text = await get_schedule_text_cached(user.id, target_date)
                 await callback.message.edit_text(text, parse_mode="Markdown")
                 await callback.message.answer("🔙 Вернуться в меню", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🔙 Главное меню", callback_data="back_to_main")]
@@ -727,7 +748,9 @@ async def cmd_week(message: types.Message):
     text_parts = []
     for i in range(7):
         target = today + timedelta(days=i)
-        day_text = await get_schedule_text_cached(message.from_user.id, target)
+        async with AsyncSessionLocal() as db:
+            user = get_user_by_platform_id(db, Platform.TELEGRAM, message.from_user.id)
+        day_text = await get_schedule_text_cached(user.id, target)
         text_parts.append(day_text)
     full_text = "\n\n".join(text_parts)
     await message.answer(full_text, parse_mode="Markdown")
