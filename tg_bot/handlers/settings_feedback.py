@@ -2,104 +2,109 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.connection import async_session_maker
-from database.models import User
-from services import user_service
-from config import settings
+from database.models import User, Group
+from services.user_service import get_or_create_user, update_user_preferences, update_user_group, create_feedback
 
-tg_settings_router = Router()
+router = Router()
 
 
-class FeedbackStates(StatesGroup):
+class SettingsFeedbackStates(StatesGroup):
     waiting_for_feedback = State()
+    waiting_for_new_group = State()
 
 
-async def get_settings_keyboard(user: User) -> InlineKeyboardMarkup:
-    """Генерирует клавиатуру настроек с динамическим отображением текущих статусов."""
-    msg_type = "📝 Текст" if user.schedule_message_type == "text" else "🖼️ Картинка"
-    notif_status = "🔔 Включены" if user.notifications_enabled else "🔕 Выключены"
+@router.callback_query(F.data == "settings_menu")
+async def show_settings(callback: CallbackQuery, session: AsyncSession):
+    user = await get_or_create_user(session, "telegram", callback.from_user.id)
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"📊 Формат: {msg_type}", callback_data="set:toggle_type")],
-        [InlineKeyboardButton(text=f"📢 Уведомления: {notif_status}", callback_data="set:toggle_notif")],
-        [InlineKeyboardButton(text="✍️ Написать администрации", callback_data="set:feedback")],
-        [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu:back")]
-    ])
-    return kb
+    notify_text = "🔔 Включены" if user.is_notification_on else "🔕 Выключены"
+    type_text = "🖼 Картинка" if user.schedule_message_type == "pic" else "📝 Текст"
+
+    buttons = [
+        [InlineKeyboardButton(text=f"Уведомления: {notify_text}", callback_data="toggle_notify")],
+        [InlineKeyboardButton(text=f"Формат: {type_text}", callback_data="toggle_format")]
+    ]
+
+    # Если пользователь студент (нет профиля преподавателя), даем возможность сменить группу
+    if user.teacher_profile_id is None:
+        current_group = user.groups[0].name if user.groups else "Не выбрана"
+        buttons.append([InlineKeyboardButton(text=f"🏫 Группа: {current_group}", callback_data="change_user_group")])
+
+    buttons.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")])
+
+    await callback.message.edit_text("⚙️ **Настройки профиля:**\nИзмените параметры под себя:",
+                                     reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
-@tg_settings_router.callback_query(F.data == "menu:settings")
-async def show_settings(callback: CallbackQuery):
-    async with async_session_maker() as session:
-        user = await user_service.get_user_by_platform_id(session, "tg", callback.from_user.id)
+@router.callback_query(F.data == "toggle_notify")
+async def toggle_notifications(callback: CallbackQuery, session: AsyncSession):
+    user = await get_or_create_user(session, "telegram", callback.from_user.id)
+    new_status = not user.is_notification_on
+    await update_user_preferences(session, user.id, is_notification_on=new_status)
+    await callback.answer("Настройки уведомлений изменены!")
+    await show_settings(callback, session)
 
-    if not user:
-        await callback.answer("Пользователь не найден.", show_alert=True)
+
+@router.callback_query(F.data == "toggle_format")
+async def toggle_format_type(callback: CallbackQuery, session: AsyncSession):
+    user = await get_or_create_user(session, "telegram", callback.from_user.id)
+    new_format = "text" if user.schedule_message_type == "pic" else "pic"
+    await update_user_preferences(session, user.id, schedule_type=new_format)
+    await callback.answer("Формат расписания изменен!")
+    await show_settings(callback, session)
+
+
+@router.callback_query(F.data == "change_user_group")
+async def change_group_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    groups_res = await session.execute(select(Group).order_by(Group.name))
+    groups = groups_res.scalars().all()
+
+    buttons = []
+    for g in groups:
+        buttons.append([InlineKeyboardButton(text=g.name, callback_data=f"set_new_group_{g.name}")])
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu")])
+
+    await callback.message.edit_text("📋 Выберите вашу новую группу из списка:",
+                                     reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+
+@router.callback_query(F.data.startswith("set_new_group_"))
+async def change_group_finish(callback: CallbackQuery, session: AsyncSession):
+    group_name = callback.data.replace("set_new_group_", "")
+    user = await get_or_create_user(session, "telegram", callback.from_user.id)
+
+    success = await update_user_group(session, user.id, group_name)
+    if success:
+        await callback.answer(f"Группа успешно изменена на {group_name}!", show_alert=True)
+    else:
+        await callback.answer("Ошибка изменения группы.")
+    await show_settings(callback, session)
+
+
+@router.callback_query(F.data == "feedback_menu")
+async def feedback_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(SettingsFeedbackStates.waiting_for_feedback)
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[[InlineKeyboardButton(text="❌ Отмена", callback_data="main_menu")]]])
+    await callback.message.edit_text(
+        "💬 Напишите ваше предложение, отзыв или сообщение об ошибке для администрации учебного заведения.\n\n*Отправьте сообщение текстом:*",
+        reply_markup=keyboard, parse_mode="Markdown")
+
+
+@router.message(SettingsFeedbackStates.waiting_for_feedback)
+async def feedback_received(message: Message, state: FSMContext, session: AsyncSession):
+    if not message.text:
+        await message.answer("Пожалуйста, отправьте текстовое сообщение.")
         return
 
-    kb = await get_settings_keyboard(user)
-    await callback.message.edit_text("⚙️ *Управление вашим профилем и уведомлениями:*", parse_mode="Markdown",
-                                     reply_markup=kb)
-    await callback.answer()
-
-
-@tg_settings_router.callback_query(F.data.startswith("set:toggle_"))
-async def toggle_setting_value(callback: CallbackQuery):
-    action = callback.data.split("_")[1]
-
-    async with async_session_maker() as session:
-        stmt = select(User).where(User.platform == "tg", User.platform_user_id == str(callback.from_user.id))
-        res = await session.execute(stmt)
-        user = res.scalars().first()
-
-        if user:
-            if action == "type":
-                user.schedule_message_type = "image" if user.schedule_message_type == "text" else "text"
-            elif action == "notif":
-                user.notifications_enabled = not user.notifications_enabled
-            await session.commit()
-
-            # Обновляем клавиатуру на лету
-            kb = await get_settings_keyboard(user)
-            await callback.message.edit_reply_markup(reply_markup=kb)
-            await callback.answer("✅ Настройки успешно обновлены!")
-
-
-@tg_settings_router.callback_query(F.data == "set:feedback")
-async def start_feedback_flow(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(FeedbackStates.waiting_for_feedback)
-    await callback.message.edit_text(
-        "📥 Напишите ваше сообщение, предложение или жалобу.\n"
-        "Оно будет немедленно передано администраторам системы.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="menu:settings")]
-        ])
-    )
-    await callback.answer()
-
-
-@tg_settings_router.message(FeedbackStates.waiting_for_feedback)
-async def process_feedback_message(message: Message, state: FSMContext):
-    feedback_text = message.text.strip()
+    user = await get_or_create_user(session, "telegram", message.from_user.id)
+    await create_feedback(session, user.id, message.text)
     await state.clear()
 
-    from main_loader import tg_bot
-
-    # Пересылаем сообщение всем админам из конфигурации
-    admin_alert = (
-        f"📩 *Получен новый отзыв/жалоба!*\n\n"
-        f"👤 Отправитель: {message.from_user.full_name} (ID: {message.from_user.id}, @{message.from_user.username or 'нет'})\n"
-        f"📱 Платформа: Telegram\n"
-        f"💬 Текст: {feedback_text}"
-    )
-
-    for admin_id in settings.ADMIN_IDS:
-        try:
-            await tg_bot.send_message(chat_id=admin_id, text=admin_alert, parse_mode="Markdown")
-        except Exception:
-            pass  # Если у админа не запущен бот
-
-    await message.answer("✅ Ваше сообщение успешно отправлено! Спасибо за обратную связь.")
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[[InlineKeyboardButton(text="📱 В главное меню", callback_data="main_menu")]]])
+    await message.answer("✅ Ваше обращение успешно сохранено и отправлено администрации! Спасибо за обратную связь.",
+                         reply_markup=keyboard)

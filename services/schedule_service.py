@@ -68,3 +68,23 @@ async def get_students_to_notify_by_lesson(session: AsyncSession, lesson_id: int
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def get_students_for_lesson_notification(session: AsyncSession, lesson_id: int) -> list[User]:
+    """
+    Находит всех пользователей (студентов), которые записаны в группы,
+    связанные с конкретным занятием (lesson_id).
+    """
+    # 1. Находим все group_id, которые есть у этого занятия
+    groups_query = select(LessonGroup.group_id).where(LessonGroup.lesson_id == lesson_id)
+
+    # 2. Находим всех пользователей, которые состоят в этих группах
+    query = (
+        select(User)
+        .join(GroupUser, User.id == GroupUser.user_id)
+        .where(GroupUser.group_id.in_(groups_query))
+        .where(User.is_notification_on == True)  # Рассылаем только тем, кто включил уведомления
+    )
+
+    result = await session.execute(query)
+    return result.scalars().all()
