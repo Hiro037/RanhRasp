@@ -8,3 +8,6 @@ class RegistrationStates(StatesGroup):
     waiting_for_notifications = State()  # Включение/выключение уведомлений
     # Ветка преподавателя
     waiting_for_teacher_name = State()   # Ввод ФИО для сверки со списком базы
+
+class TeacherActionStates(StatesGroup):
+    waiting_for_comment = State() # Ожидание ввода текста комментария
