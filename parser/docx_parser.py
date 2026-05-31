@@ -7,7 +7,7 @@ from sqlalchemy import select
 import aspose.words as aw
 import re
 
-from database.connection import async_session_maker
+from database.connection import async_session
 from database.models import Group, Subject, Classroom, Teacher, Lesson, LessonGroup
 from parser.regex_patterns import DATE_PATTERN, TIME_START_PATTERN, ACADEMIC_TITLES_PATTERN, CLEAN_NAME_PATTERN
 from utils.timezone import YEKT_TZ
@@ -106,7 +106,7 @@ async def parse_docx_to_db(file_path: str, group_name: str):
             row_text = "".join([cell.text.strip() for cell in row.cells])
             if row_text.strip(" "): lines.append(row_text)
 
-    async with async_session_maker() as session:
+    async with async_session() as session:
         group_obj = await get_or_create(session, Group, Group.name, group_name)
         current_date: date | None = None
 

@@ -4,8 +4,9 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Settings
+from database.connection import async_session
 from database.models import User, Teacher, TeacherRequest, Feedback
-from utils.paginator import get_page_items
+from services.paginator import get_page_items
 
 bp = Blueprint("AdminHandlers")
 settings = Settings()
@@ -34,13 +35,15 @@ async def stats_vk(message: Message):
     if not is_admin_vk(message.from_id): return
 
     # Запрашиваем асинхронную сессию из контекста middleware
-    session: AsyncSession = message.ctx_api.session
+    # session: AsyncSession = message.ctx_api.session
 
-    now = datetime.utcnow()
-    day_ago = now - timedelta(days=1)
+    async with async_session() as session:
 
-    users_res = await session.execute(select(User))
-    all_users = users_res.scalars().all()
+        now = datetime.utcnow()
+        day_ago = now - timedelta(days=1)
+
+        users_res = await session.execute(select(User))
+        all_users = users_res.scalars().all()
 
     total = len(all_users)
     teachers = sum(1 for u in all_users if u.teacher_profile_id is not None)

@@ -5,7 +5,7 @@ from vkbottle import Keyboard, KeyboardButtonColor, Text
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from database.connection import async_session_maker
+from database.connection import async_session
 from database.models import Lesson
 from services import user_service, schedule_service
 from vk_bot.states import VkTeacherStates
@@ -24,7 +24,7 @@ async def vk_btn_add_comment(message: Message):
     """Вывод списка пар для учителя внутри ВКонтакте."""
     today = get_now().date()
 
-    async with async_session_maker() as session:
+    async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
         if not user or user.role != "teacher" or not user.teacher_id:
             await message.answer("⚠️ У вас нет прав доступа к панели преподавателя.")
@@ -76,7 +76,7 @@ async def vk_save_comment_and_notify(message: Message):
 
     await vk_bot.state_dispenser.delete(message.from_id)
 
-    async with async_session_maker() as session:
+    async with async_session() as session:
         # Предварительно берем метаданные для генерации текста сообщения
         stmt = select(Lesson).where(Lesson.id == lesson_id).options(selectinload(Lesson.subject))
         res = await session.execute(stmt)

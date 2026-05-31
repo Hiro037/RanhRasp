@@ -3,7 +3,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from database.connection import async_session_maker
+from database.connection import async_session
 from services import user_service
 from tg_bot.states import RegistrationStates
 
@@ -34,7 +34,7 @@ def get_notif_keyboard() -> InlineKeyboardMarkup:
 @registration_router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     """Точка входа. Создает пользователя (гостя) и предлагает выбрать роль."""
-    async with async_session_maker() as session:
+    async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "tg", message.from_user.id)
         if not user:
             await user_service.create_user(session, "tg", message.from_user.id)
@@ -52,7 +52,7 @@ async def cmd_start(message: Message, state: FSMContext):
 @registration_router.callback_query(RegistrationStates.waiting_for_role, F.data == "role:student")
 async def process_student_role(callback: CallbackQuery, state: FSMContext):
     """Переход на ветку студента: выбор группы."""
-    async with async_session_maker() as session:
+    async with async_session() as session:
         groups = await user_service.get_all_groups(session)
 
     if not groups:
@@ -106,7 +106,7 @@ async def process_student_final(callback: CallbackQuery, state: FSMContext):
     user_data = await state.get_data()
     await state.clear()
 
-    async with async_session_maker() as session:
+    async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "tg", callback.from_user.id)
         if user:
             # Обновляем профиль в БД через сервисный слой
@@ -146,7 +146,7 @@ async def process_teacher_name(message: Message, state: FSMContext):
 
     # По вашему плану (Этап 9) здесь создается заявка, которая ждет одобрения админом.
     # Пока мы просто запишем ФИО в буфер или профиль со статусом "не верифицирован"
-    async with async_session_maker() as session:
+    async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "tg", message.from_user.id)
         if user:
             # Кастомный метод сервиса (или создание профиля)

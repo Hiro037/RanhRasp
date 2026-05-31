@@ -2,7 +2,7 @@ from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import Message
 
-from database.connection import async_session_maker
+from database.connection import async_session
 from services.log_service import add_log_entry
 from services.user_service import get_user_by_platform_id
 from config import settings
@@ -19,7 +19,7 @@ class TgLoggingMiddleware(BaseMiddleware):
         if not isinstance(event, Message):
             return await handler(event, data)
 
-        async with async_session_maker() as session:
+        async with async_session() as session:
             # 1. Пытаемся найти пользователя в нашей БД
             user = await get_user_by_platform_id(session, "tg", event.from_user.id)
             user_id = user.id if user else None

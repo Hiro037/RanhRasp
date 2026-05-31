@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Sequence
-from sqlalchemy import select, update, and_
+from sqlalchemy import select, update, and_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -10,10 +10,12 @@ from config import Settings
 settings = Settings()
 
 
-async def get_or_create_user(session: AsyncSession, platform: str, platform_id: int) -> User:
+# ========== БАЗОВЫЕ МЕТОДЫ ==========
+
+async def get_user_by_platform_id(session: AsyncSession, platform: str, platform_id: int) -> User | None:
     """
-    Получает пользователя по его platform_id или создает нового, если его нет в базе.
-    Сразу подгружает связанные группы и профиль преподавателя для избежания LazyLoad-ошибок.
+    Получает пользователя по платформе и ID на платформе.
+    Подгружает группы и преподавателя.
     """
     query = (
         select(User)
@@ -21,29 +23,53 @@ async def get_or_create_user(session: AsyncSession, platform: str, platform_id: 
         .options(selectinload(User.groups), selectinload(User.teacher))
     )
     result = await session.execute(query)
-    user = result.scalar_one_or_none()
+    return result.scalar_one_or_none()
 
-    if not user:
-        user = User(
-            platform=platform,
-            platform_id=platform_id,
-            is_notification_on=True,
-            schedule_message_type="text"
-        )
-        session.add(user)
-        await session.commit()
-        # Повторно запрашиваем со связями, чтобы объект был валидным
-        result = await session.execute(query)
-        user = result.scalar_one_or_none()
 
+async def create_user(session: AsyncSession, platform: str, platform_id: int) -> User:
+    """Создаёт нового пользователя с настройками по умолчанию."""
+    user = User(
+        platform=platform,
+        platform_id=platform_id,
+        is_notification_on=True,
+        schedule_message_type="text"
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
     return user
 
 
+async def get_or_create_user(session: AsyncSession, platform: str, platform_id: int) -> User:
+    """Получает пользователя или создаёт нового. Подгружает связи."""
+    user = await get_user_by_platform_id(session, platform, platform_id)
+    if not user:
+        user = await create_user(session, platform, platform_id)
+        # Повторно загружаем со связями
+        user = await get_user_by_platform_id(session, platform, platform_id)
+    return user
+
+
+async def get_all_groups(session: AsyncSession) -> list[Group]:
+    """Возвращает список всех групп, отсортированных по имени."""
+    result = await session.execute(select(Group).order_by(Group.name))
+    return list(result.scalars().all())
+
+
+async def get_group_by_id(session: AsyncSession, group_id: int) -> Group | None:
+    """Получает группу по ID."""
+    result = await session.execute(select(Group).where(Group.id == group_id))
+    return result.scalar_one_or_none()
+
+
+async def get_group_by_name(session: AsyncSession, group_name: str) -> Group | None:
+    """Получает группу по названию."""
+    result = await session.execute(select(Group).where(Group.name == group_name))
+    return result.scalar_one_or_none()
+
+
 async def determine_user_role(user: User) -> str:
-    """
-    Динамически определяет роль пользователя согласно ТЗ.
-    Возвращает: 'admin', 'teacher' или 'student'.
-    """
+    """Динамически определяет роль пользователя: admin, teacher, student."""
     if user.platform == "telegram" and user.platform_id in settings.TG_ADMINS:
         return "admin"
     if user.platform == "vk" and user.platform_id in settings.VK_ADMINS:
@@ -53,16 +79,24 @@ async def determine_user_role(user: User) -> str:
     return "student"
 
 
+# ========== НАСТРОЙКИ ==========
+
 async def update_user_preferences(
-        session: AsyncSession,
-        user_id: int,
-        schedule_type: str = None,
-        is_notification_on: bool = None
+    session: AsyncSession,
+    user_id: int,
+    schedule_type: str | None = None,
+    is_notification_on: bool | None = None
 ) -> None:
-    """Обновляет настройки отображения расписания и уведомлений пользователя"""
+    """
+    Обновляет настройки отображения расписания и уведомлений пользователя.
+    Параметры: schedule_type = 'text' или 'image' (в БД хранится 'text'/'pic')
+               is_notification_on = True/False
+    """
     update_data = {}
     if schedule_type is not None:
-        update_data["schedule_message_type"] = schedule_type
+        # Приводим к формату БД: 'image' -> 'pic', 'text' -> 'text'
+        db_type = "pic" if schedule_type == "image" else "text"
+        update_data["schedule_message_type"] = db_type
     if is_notification_on is not None:
         update_data["is_notification_on"] = is_notification_on
 
@@ -73,43 +107,55 @@ async def update_user_preferences(
         await session.commit()
 
 
-async def update_user_group(session: AsyncSession, user_id: int, group_name: str) -> bool:
-    """
-    Привязывает студента к группе (создает или обновляет запись в group_users).
-    Используется как при первичной регистрации, так и при смене группы в настройках.
-    """
-    # Находим ID группы по её названию
-    group_query = select(Group).where(Group.name == group_name)
-    group_res = await session.execute(group_query)
-    group = group_res.scalar_one_or_none()
+async def update_user_activity(session: AsyncSession, user_id: int) -> None:
+    """Обновляет метку последней активности пользователя."""
+    query = update(User).where(User.id == user_id).values(last_activity=datetime.utcnow())
+    await session.execute(query)
+    await session.commit()
 
+
+# ========== РАБОТА С ГРУППАМИ (MANY-TO-MANY) ==========
+
+async def set_user_group(session: AsyncSession, user_id: int, group_id: int) -> bool:
+    """
+    Привязывает пользователя к группе (заменяет все предыдущие группы).
+    Возвращает True, если группа существует.
+    """
+    # Проверяем существование группы
+    group = await get_group_by_id(session, group_id)
     if not group:
-        return False  # Группа не найдена в базе данных
+        return False
 
-    # Удаляем старые привязки к группам (согласно ТЗ у пользователя может быть одна активная группа)
-    delete_query = update(GroupUser).where(GroupUser.user_id == user_id)
-    # В SQLAlchemy для composite primary key проще удалить старую связь и залить новую
-    from sqlalchemy import delete
+    # Удаляем старые связи
     await session.execute(delete(GroupUser).where(GroupUser.user_id == user_id))
 
     # Добавляем новую связь
-    new_link = GroupUser(user_id=user_id, group_id=group.id)
+    new_link = GroupUser(user_id=user_id, group_id=group_id)
     session.add(new_link)
-
-    # Обновляем активность пользователя
-    await session.execute(
-        update(User).where(User.id == user_id).values(last_activity=datetime.utcnow())
-    )
-
     await session.commit()
     return True
 
 
+async def update_user_group(session: AsyncSession, user_id: int, group_name: str) -> bool:
+    """
+    Привязывает пользователя к группе по названию.
+    Используется для обратной совместимости со старым кодом.
+    """
+    group = await get_group_by_name(session, group_name)
+    if not group:
+        return False
+    return await set_user_group(session, user_id, group.id)
+
+
+async def get_user_group(user: User) -> Group | None:
+    """Возвращает первую группу пользователя или None."""
+    return user.groups[0] if user.groups else None
+
+
+# ========== ЗАЯВКИ ПРЕПОДАВАТЕЛЕЙ ==========
+
 async def create_teacher_request(session: AsyncSession, user_id: int, teacher_name: str) -> TeacherRequest:
-    """
-    ДОБАВЛЕНО: Создает заявку на верификацию преподавателя.
-    Вызывается на Этапе 6 в процессе FSM-регистрации.
-    """
+    """Создаёт заявку на верификацию преподавателя."""
     request = TeacherRequest(
         user_id=user_id,
         teacher_name=teacher_name,
@@ -123,11 +169,10 @@ async def create_teacher_request(session: AsyncSession, user_id: int, teacher_na
     return request
 
 
+# ========== ОБРАТНАЯ СВЯЗЬ ==========
+
 async def create_feedback(session: AsyncSession, user_id: int, message: str) -> Feedback:
-    """
-    ДОБАВЛЕНО: Сохраняет обращение пользователя (обратную связь) в базу данных.
-    Вызывается на Этапе 10 в хендлерах обратной связи.
-    """
+    """Сохраняет обращение пользователя."""
     feedback = Feedback(
         user_id=user_id,
         message=message,
@@ -139,11 +184,3 @@ async def create_feedback(session: AsyncSession, user_id: int, message: str) -> 
     )
     await session.commit()
     return feedback
-
-
-async def update_user_activity(session: AsyncSession, user_id: int) -> None:
-    """Обновляет только временную метку последней активности пользователя (для Middleware логирования)"""
-    query = update(User).where(User.id == user_id).values(last_activity=datetime.utcnow())
-    await session.execute(query)
-    await session.commit()
-    

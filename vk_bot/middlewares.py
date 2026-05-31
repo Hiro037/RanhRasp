@@ -1,7 +1,7 @@
 from vkbottle import BaseMiddleware
 from vkbottle.bot import Message
 
-from database.connection import async_session_maker
+from database.connection import async_session
 from services.log_service import add_log_entry
 from services.user_service import get_user_by_platform_id
 from config import settings
@@ -10,7 +10,7 @@ from config import settings
 class VkLoggingMiddleware(BaseMiddleware[Message]):
     async def pre(self):
         # Метод выполняется ДО того, как сообщение попадет в хендлеры
-        async with async_session_maker() as session:
+        async with async_session() as session:
             user = await get_user_by_platform_id(session, "vk", self.event.from_id)
             user_id = user.id if user else None
 

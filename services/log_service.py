@@ -1,6 +1,6 @@
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.models import Log
+from database.models import Logs
 
 async def add_log_entry(
     session: AsyncSession,
@@ -13,7 +13,7 @@ async def add_log_entry(
     details: str | None = None
 ) -> None:
     """Сохраняет запись о действии пользователя в таблицу логов."""
-    stmt = insert(Log).values(
+    stmt = insert(Logs).values(
         user_id=user_id,
         platform_user_id=platform_user_id,
         user_role=user_role,

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, date
 from vkbottle.bot import BotLabeler, Message
 from vkbottle import PhotoMessageUploader  # Загрузчик картинок в сообщения vkbottle
 
-from database.connection import async_session_maker
+from database.connection import async_session
 from services import user_service, schedule_service
 from vk_bot import keyboards as kb
 from config import settings
@@ -58,7 +58,7 @@ async def vk_send_schedule_core(message: Message, target_date: date):
     Ядро отправки расписания для платформы ВКонтакте.
     Генерирует текст или загружает сгенерированные байты PNG на сервера VK.
     """
-    async with async_session_maker() as session:
+    async with async_session() as session:
         # 1. Получаем пользователя по VK ID
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
         if not user or not user.group_id:

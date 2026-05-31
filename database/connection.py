@@ -12,7 +12,7 @@ engine = create_async_engine(
     future=True
 )
 
-# Фабрика сессий
+# Фабрика сессий (единственный правильный объект для создания сессий)
 async_session = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -27,5 +27,4 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     """Функция для первичной инициализации таблиц базы данных"""
     async with engine.begin() as conn:
-        # Создает таблицы, если они еще не существуют в базе данных
         await conn.run_sync(Base.metadata.create_all)

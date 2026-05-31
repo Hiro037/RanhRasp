@@ -134,6 +134,7 @@ class Logs(Base):
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     user_role: Mapped[str] = mapped_column(String(20), default="student")  # Определяется динамически при логировании
     platform: Mapped[str] = mapped_column(String(10), nullable=False)
+    platform_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     datetime: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     action_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # success, error

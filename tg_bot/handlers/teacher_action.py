@@ -6,14 +6,15 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from database.connection import async_session_maker
+from database.connection import async_session
 from database.models import Lesson
 from services import user_service, schedule_service
 from tg_bot.states import TeacherActionStates
 from utils.timezone import get_now
 
 # Импорты инстансов ботов для кроссплатформенной фоновой рассылки
-from main_loader import tg_bot, vk_bot
+from tg_bot.loader import tg_bot
+from vk_bot.loader import vk_bot
 
 teacher_router = Router()
 

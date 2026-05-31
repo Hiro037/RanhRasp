@@ -2,7 +2,7 @@ import json
 from vkbottle.bot import BotLabeler, Message
 from vkbottle import Keyboard, KeyboardButtonColor, Text
 
-from database.connection import async_session_maker
+from database.connection import async_session
 from services import user_service
 from vk_bot.loader import vk_bot
 from vk_bot.states import VkRegistrationStates
@@ -34,7 +34,7 @@ def get_vk_notif_kb() -> str:
 
 @vk_registration_labeler.message(text=["Начать", "Start", "/start"])
 async def vk_cmd_start(message: Message):
-    async with async_session_maker() as session:
+    async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
         if not user:
             await user_service.create_user(session, "vk", message.from_id)
@@ -54,7 +54,7 @@ async def vk_cmd_start(message: Message):
     func=lambda msg: msg.payload is not None and json.loads(msg.payload).get("role") == "student"
 )
 async def vk_process_student_role(message: Message):
-    async with async_session_maker() as session:
+    async with async_session() as session:
         groups = await user_service.get_all_groups(session)
 
     if not groups:
@@ -113,7 +113,7 @@ async def vk_process_student_final(message: Message):
     state_data = message.state_peer.payload
     await vk_bot.state_dispenser.delete(message.from_id)  # Сброс FSM
 
-    async with async_session_maker() as session:
+    async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
         if user:
             await user_service.set_user_group(session, user.id, state_data["group_id"])
@@ -142,7 +142,7 @@ async def vk_process_teacher_name(message: Message):
     teacher_name = message.text.strip()
     await vk_bot.state_dispenser.delete(message.from_id)
 
-    async with async_session_maker() as session:
+    async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
         if user:
             await user_service.create_teacher_request(session, user.id, teacher_name)

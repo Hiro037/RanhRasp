@@ -4,7 +4,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
 
-from database.connection import async_session_maker
+from database.connection import async_session
 from services import user_service, schedule_service
 from tg_bot import keyboards as kb
 from config import settings
@@ -73,7 +73,7 @@ async def send_schedule(event: CallbackQuery | Message, platform_user_id: int, t
     Универсальное ядро отправки расписания для Telegram.
     Автоматически переключается между ТЕКСТОМ и КАРТИНКОЙ на основе настроек юзера.
     """
-    async with async_session_maker() as session:
+    async with async_session() as session:
         # 1. Получаем пользователя по его Telegram ID
         user = await user_service.get_user_by_platform_id(session, "tg", platform_user_id)
         if not user or not user.group_id:

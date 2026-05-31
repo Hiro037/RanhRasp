@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import Settings
 from database.models import User, Teacher, TeacherRequest, Feedback, Logs
 from services.user_service import determine_user_role
-from utils.paginator import get_page_items
+from services.paginator import get_page_items
 
 router = Router()
 settings = Settings()
