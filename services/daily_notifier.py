@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.connection import async_session
-from database.models import User
+from database.models import User, Teacher
 from services import user_service, schedule_service
 from utils.timezone import get_now, YEKT_TZ
 from utils.image_generator import generate_schedule_image

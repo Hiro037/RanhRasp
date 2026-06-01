@@ -7,6 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.orm import selectinload
 
 from database.connection import async_session
+from database.models import Teacher
 from services import user_service, schedule_service
 from services.user_service import determine_user_role
 from tg_bot import keyboards as kb
@@ -21,7 +22,6 @@ menu_router = Router()
 async def show_main_menu(message: Message):
     is_admin = message.from_user.id in settings.TG_ADMINS
     if is_admin:
-        # Для админа – специальное меню с кнопкой админ-панели
         builder = InlineKeyboardBuilder()
         builder.button(text="📅 Посмотреть расписание", callback_data="menu:schedule")
         builder.button(text="⚙️ Настройки профиля", callback_data="menu:settings")
@@ -67,7 +67,6 @@ async def callback_back_to_menu(callback: CallbackQuery):
 
 @menu_router.callback_query(F.data == "menu:schedule")
 async def callback_choose_schedule_period(callback: CallbackQuery):
-    """Показывает клавиатуру выбора периода (сегодня/завтра/неделя)."""
     await callback.message.edit_text(
         "📅 Выберите период для просмотра расписания:",
         reply_markup=kb.get_schedule_period_keyboard()
@@ -93,23 +92,19 @@ async def callback_schedule_tomorrow(callback: CallbackQuery):
 
 @menu_router.callback_query(F.data == "schedule:this_week")
 async def callback_schedule_this_week(callback: CallbackQuery):
-    """Показывает клавиатуру с днями текущей недели (пн–вс)."""
     today = get_now().date()
-    # Находим понедельник текущей недели
-    start_of_week = today - timedelta(days=today.weekday())  # weekday(): понедельник = 0
+    start_of_week = today - timedelta(days=today.weekday())
     await show_week_keyboard(callback, start_of_week, week_type="this")
 
 
 @menu_router.callback_query(F.data == "schedule:next_week")
 async def callback_schedule_next_week(callback: CallbackQuery):
-    """Показывает клавиатуру с днями следующей недели."""
     today = get_now().date()
     start_of_next_week = today - timedelta(days=today.weekday()) + timedelta(days=7)
     await show_week_keyboard(callback, start_of_next_week, week_type="next")
 
 
 async def show_week_keyboard(callback: CallbackQuery, start_date: date, week_type: str):
-    """Генерирует инлайн-клавиатуру с датами недели."""
     days = []
     for i in range(7):
         d = start_date + timedelta(days=i)
@@ -121,11 +116,10 @@ async def show_week_keyboard(callback: CallbackQuery, start_date: date, week_typ
         builder.button(text=label, callback_data=f"week_day:{d.strftime('%Y-%m-%d')}:{week_type}")
     builder.adjust(1)
 
-    # Кнопки навигации между неделями
     nav_buttons = []
     if week_type == "this":
         nav_buttons.append(InlineKeyboardButton(text="Следующая неделя ➡️", callback_data="schedule:next_week"))
-    else:  # next_week
+    else:
         nav_buttons.append(InlineKeyboardButton(text="⬅️ Эта неделя", callback_data="schedule:this_week"))
     nav_buttons.append(InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu:back"))
     builder.row(*nav_buttons)
@@ -139,14 +133,11 @@ async def show_week_keyboard(callback: CallbackQuery, start_date: date, week_typ
 
 @menu_router.callback_query(F.data.startswith("week_day:"))
 async def callback_week_day_selected(callback: CallbackQuery):
-    """Обработчик выбора конкретной даты из недельного режима."""
     _, date_str, week_type = callback.data.split(":")
     target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    # Передаём флаг, что это вызов из недельного режима
     await send_schedule(callback, callback.from_user.id, target_date, edit_mode=False, from_week_mode=True)
     await callback.message.delete()
     await callback.answer()
-
 
 
 @menu_router.callback_query(F.data.startswith("sched_nav:"))
@@ -174,41 +165,73 @@ async def send_schedule(
 ):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "telegram", platform_user_id)
-
-        # Проверка наличия пользователя и групп
-        if not user or not user.groups:
-            msg = "⚠️ Ошибка: ваш профиль не настроен. Пройдите регистрацию через /start"
+        if not user:
+            msg = "⚠️ Ошибка: ваш профиль не найден. Пройдите регистрацию через /start"
             if isinstance(event, CallbackQuery):
                 await event.message.answer(msg)
             else:
                 await event.answer(msg)
             return
 
-        # Берём первую (и единственную) группу
-        group = user.groups[0]
-        group_name = group.name
-        group_id = group.id
-        role = determine_user_role(user)
+        role = await user_service.determine_user_role(user)
 
-        # Получаем занятия с подгрузкой связанных данных
-        lessons = await schedule_service.get_lessons_for_student(session, group_id, target_date)
-        if role == "teacher":
-            has_next = await schedule_service.has_lessons_future(session, target_date,
-                                                                 teacher_id=user.teacher_profile_id)
-        else:
+        # --- Ветвление для студента / преподавателя ---
+        lessons = []
+        entity_name = None
+        has_next = False
+
+        if role == "student":
+            if not user.groups:
+                msg = "⚠️ Вы не привязаны к группе. Исправьте в настройках."
+                if isinstance(event, CallbackQuery):
+                    await event.message.answer(msg)
+                else:
+                    await event.answer(msg)
+                return
+            group = user.groups[0]
+            group_id = group.id
+            group_name = group.name
+            lessons = await schedule_service.get_lessons_for_student(session, group_id, target_date)
+            entity_name = group_name
             has_next = await schedule_service.has_lessons_future(session, target_date, group_id=group_id)
 
-        # Определяем роль пользователя
-        role = await user_service.determine_user_role(user)
+        elif role == "teacher":
+            if not user.teacher_profile_id:
+                msg = "⚠️ Ваш профиль преподавателя не активирован. Обратитесь к администратору."
+                if isinstance(event, CallbackQuery):
+                    await event.message.answer(msg)
+                else:
+                    await event.answer(msg)
+                return
+            lessons = await schedule_service.get_lessons_for_teacher(session, user.teacher_profile_id, target_date)
+            teacher = await session.get(Teacher, user.teacher_profile_id)
+            entity_name = teacher.name if teacher else "Преподаватель"
+            has_next = await schedule_service.has_lessons_future(session, target_date, teacher_id=user.teacher_profile_id)
+
+        else:  # admin (показываем как студента, если есть группа, иначе ошибка)
+            if user.groups:
+                group = user.groups[0]
+                group_id = group.id
+                group_name = group.name
+                lessons = await schedule_service.get_lessons_for_student(session, group_id, target_date)
+                entity_name = group_name
+                has_next = await schedule_service.has_lessons_future(session, target_date, group_id=group_id)
+            else:
+                msg = "⚠️ У вас нет группы или преподавательского профиля."
+                if isinstance(event, CallbackQuery):
+                    await event.message.answer(msg)
+                else:
+                    await event.answer(msg)
+                return
 
         reply_markup = kb.get_schedule_keyboard(target_date, has_next, role=role)
         date_str = target_date.strftime("%d.%m.%Y")
 
         # Отправка в графическом формате
-        if user.schedule_message_type == "pic":  # в БД хранится 'pic' для картинки
-            image_bytes = await generate_schedule_image(lessons, target_date, group_name)
+        if user.schedule_message_type == "pic":
+            image_bytes = await generate_schedule_image(lessons, target_date, entity_name)
             input_file = BufferedInputFile(image_bytes, filename=f"schedule_{date_str}.png")
-            caption = f"🖼️ Расписание на {date_str} для группы *{group_name}*"
+            caption = f"🖼️ Расписание на {date_str} для {entity_name}"
 
             if edit_mode and isinstance(event, CallbackQuery):
                 try:
@@ -224,15 +247,17 @@ async def send_schedule(
 
         # Текстовый формат
         else:
-            text = f"📅 *Расписание на {date_str}* | Группа: *{group_name}*\n\n"
+            text = f"📅 *Расписание на {date_str}* | {entity_name}\n\n"
             if not lessons:
                 text += "💤 В этот день занятий нет. Отдыхайте!"
             else:
                 for idx, lesson in enumerate(lessons, 1):
                     time_start = lesson.start_datetime.strftime("%H:%M")
                     teacher = lesson.teacher.name if lesson.teacher else "Не указан"
-                    text += f"{idx}. *{time_start}* — {lesson.subject.name}\n"
-                    text += f"   🏫 Ауд: {lesson.classroom.name} | 👤 {teacher} ({lesson.type})\n"
+                    subject_name = lesson.subject.name if lesson.subject else "Без названия"
+                    classroom_name = lesson.classroom.name if lesson.classroom else "—"
+                    text += f"{idx}. *{time_start}* — {subject_name}\n"
+                    text += f"   🏫 Ауд: {classroom_name} | 👤 {teacher} ({lesson.type})\n"
                     if lesson.comment:
                         text += f"   📝 _Заметка: {lesson.comment}_\n"
                     text += "\n"
