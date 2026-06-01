@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     TG_ADMINS: list[int]
     VK_ADMINS: list[int]
+    ENABLE_DAILY_NOTIFICATIONS: bool = True
 
     # Валидатор, который превращает строку "123,456" из .env в список чисел [123, 456]
     @field_validator("TG_ADMINS", "VK_ADMINS", mode="before")

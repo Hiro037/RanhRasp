@@ -7,8 +7,15 @@
 import asyncio
 import logging
 
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+
 from database.connection import init_db, async_session
+from services.daily_notifier import send_daily_notifications
 from tg_bot.loader import tg_bot, tg_dp
+from utils.timezone import YEKT_TZ
+from config import Settings as settings
 from vk_bot.loader import vk_bot
 from tg_bot.handlers import menu, registration, settings_feedback, teacher_action, admin
 from vk_bot.handlers import admin as vk_admin, menu as vk_menu, registration as vk_reg, settings_feedback as vk_settings, teacher_action as vk_teacher
@@ -41,12 +48,23 @@ async def on_startup():
     await init_db()
     logger.info("База данных готова")
 
+    # Запуск планировщика ежедневных уведомлений
+    scheduler = AsyncIOScheduler(timezone=YEKT_TZ)
+    # Каждый день в 8:00 по местному времени
+    if settings.ENABLE_DAILY_NOTIFICATIONS:
+        scheduler.add_job(
+            send_daily_notifications,
+            trigger=CronTrigger(hour=8, minute=0),
+            id="daily_notifications",
+            replace_existing=True
+        )
+        scheduler.start()
+        logger.info("Планировщик ежедневных уведомлений запущен (каждый день в 8:00)")
 
 async def main():
     """Запуск обоих ботов параллельно"""
     await on_startup()
 
-    # Задачи для Telegram и VK
     tg_task = asyncio.create_task(
         tg_dp.start_polling(tg_bot, allowed_updates=["message", "callback_query"])
     )
