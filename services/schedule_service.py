@@ -58,17 +58,6 @@ async def add_comment_to_lesson(session: AsyncSession, lesson_id: int, comment: 
         lesson.comment = comment
         await session.commit()
 
-async def get_students_to_notify_by_lesson(session: AsyncSession, lesson_id: int) -> list[User]:
-    """Находит всех пользователей (студентов), чьи группы присутствуют на этом занятии."""
-    stmt = (
-        select(User)
-        .join(GroupUser, GroupUser.user_id == User.id)
-        .join(LessonGroup, LessonGroup.group_id == GroupUser.group_id)
-        .where(LessonGroup.lesson_id == lesson_id)
-    )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
-
 
 async def get_students_for_lesson_notification(session: AsyncSession, lesson_id: int) -> list[User]:
     """

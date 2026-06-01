@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from database.connection import async_session
 from services import user_service, schedule_service
+from services.user_service import determine_user_role
 from tg_bot import keyboards as kb
 from config import settings
 from utils.timezone import get_now
@@ -187,10 +188,15 @@ async def send_schedule(
         group = user.groups[0]
         group_name = group.name
         group_id = group.id
+        role = determine_user_role(user)
 
         # Получаем занятия с подгрузкой связанных данных
         lessons = await schedule_service.get_lessons_for_student(session, group_id, target_date)
-        has_next = await schedule_service.has_lessons_future(session, target_date, group_id=group_id)
+        if role == "teacher":
+            has_next = await schedule_service.has_lessons_future(session, target_date,
+                                                                 teacher_id=user.teacher_profile_id)
+        else:
+            has_next = await schedule_service.has_lessons_future(session, target_date, group_id=group_id)
 
         # Определяем роль пользователя
         role = await user_service.determine_user_role(user)

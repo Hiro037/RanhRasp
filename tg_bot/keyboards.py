@@ -22,9 +22,9 @@ def get_inline_main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
 def get_schedule_keyboard(target_date: date, has_next: bool, role: str = "student") -> InlineKeyboardMarkup:
     """
     Формирует клавиатуру пагинации дней.
-    Если target_date == сегодня, кнопка 'Предыдущий день' не показывается.
-    Если has_next == False, кнопка 'Следующий день' не показывается.
-    Для преподавателя добавляется кнопка '✏️ Добавить комментарий'.
+    - Если target_date == сегодня, кнопка 'Предыдущий день' НЕ показывается.
+    - Если has_next == False, кнопка 'Следующий день' НЕ показывается.
+    - Для преподавателя добавляется кнопка '✏️ Добавить комментарий'.
     """
     today = get_now().date()
     date_str = target_date.strftime("%Y-%m-%d")
@@ -46,7 +46,7 @@ def get_schedule_keyboard(target_date: date, has_next: bool, role: str = "studen
         builder.button(text="✏️ Добавить комментарий", callback_data=f"add_comment_for_date:{date_str}")
 
     builder.button(text="🔙 Главное меню", callback_data="menu:back")
-    builder.adjust(1)  # все кнопки в столбец
+    builder.adjust(1)  # все кнопки вертикально
     return builder.as_markup()
 
 def get_schedule_period_keyboard() -> InlineKeyboardMarkup:

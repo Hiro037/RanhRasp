@@ -1,10 +1,12 @@
 from aiogram import Router, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
 from database.connection import async_session
 from services import user_service
+from services.user_service import determine_user_role
+from tg_bot.keyboards import get_inline_main_menu
 from tg_bot.states import RegistrationStates
 
 registration_router = Router()
@@ -157,3 +159,16 @@ async def process_teacher_name(message: Message, state: FSMContext):
         f"Спасибо, {teacher_name}! Ваша заявка на доступ к панели преподавателя отправлена администраторам.\n"
         "После верификации вы получите уведомление и доступ к комментированию занятий."
     )
+
+@registration_router.message(Command("cancel"))
+async def cancel_handler(message: Message, state: FSMContext):
+    """Позволяет пользователю выйти из любого состояния FSM."""
+    current_state = await state.get_state()
+    async with async_session() as session:
+        user = await user_service.get_user_by_platform_id(session, "telegram", message.from_user.id)
+        is_admin = True if determine_user_role(user) == "admin" else False
+    if current_state is None:
+        await message.answer("❌ Нет активного действия для отмены.")
+        return
+    await state.clear()
+    await message.answer("✅ Действие отменено. Возврат в главное меню.", reply_markup=get_inline_main_menu(is_admin))

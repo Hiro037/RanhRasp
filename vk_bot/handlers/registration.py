@@ -171,3 +171,9 @@ async def vk_process_teacher_name(message: Message):
     await message.answer(
         f"Спасибо! Заявка для преподавателя ({teacher_name}) отправлена на модерацию админам ВК."
     )
+
+@vk_registration_labeler.message(text="/cancel")
+async def vk_cancel_handler(message: Message):
+    """Отмена текущего состояния VK."""
+    await vk_bot.state_dispenser.delete(message.from_id)
+    await message.answer("✅ Действие отменено. Напишите /menu для возврата.")

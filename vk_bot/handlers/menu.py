@@ -1,10 +1,11 @@
 import json
 from datetime import datetime, timedelta, date
 from vkbottle.bot import BotLabeler, Message
-from vkbottle import PhotoMessageUploader, KeyboardButtonColor, Keyboard
+from vkbottle import PhotoMessageUploader, KeyboardButtonColor, Keyboard, Text
 
 from database.connection import async_session
 from services import user_service, schedule_service
+from services.user_service import determine_user_role
 from vk_bot import keyboards as kb
 from config import settings
 from utils.timezone import get_now
@@ -57,8 +58,13 @@ async def vk_send_schedule_core(message: Message, target_date: date, from_week_m
         group = user.groups[0]
         group_name = group.name
         group_id = group.id
+        role = determine_user_role(user)
         lessons = await schedule_service.get_lessons_for_student(session, group_id, target_date)
-        has_next = await schedule_service.has_lessons_future(session, target_date, group_id=group_id)
+        if role == "teacher":
+            has_next = await schedule_service.has_lessons_future(session, target_date,
+                                                                 teacher_id=user.teacher_profile_id)
+        else:
+            has_next = await schedule_service.has_lessons_future(session, target_date, group_id=group_id)
 
         role = await user_service.determine_user_role(user)
         vk_keyboard = kb.get_vk_schedule_keyboard(target_date, has_next, role=role)
