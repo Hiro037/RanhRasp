@@ -4,6 +4,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import false
 
 from config import Settings
 from database.models import User, Teacher, TeacherRequest, Feedback, Logs
@@ -25,7 +26,7 @@ async def show_admin_panel(callback: CallbackQuery):
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Статистика", callback_column="admin_stats"),
+        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"),   # ← исправлено
          InlineKeyboardButton(text="📥 Запросы", callback_data="admin_requests")],
         [InlineKeyboardButton(text="📱 Главное меню", callback_data="main_menu")]
     ])
@@ -127,7 +128,6 @@ async def view_teacher_requests(callback: CallbackQuery, session: AsyncSession):
 @router.callback_query(F.data.startswith("approve_req_"))
 async def approve_teacher_request(callback: CallbackQuery, session: AsyncSession):
     if not is_admin_check(callback.from_user.id): return
-    # Формат: approve_req_{req_id}_{page}
     parts = callback.data.split("_")
     req_id = int(parts[2])
     page = int(parts[3])
@@ -137,7 +137,6 @@ async def approve_teacher_request(callback: CallbackQuery, session: AsyncSession
         await callback.answer("Заявка не найдена.")
         return
 
-    # Выгружаем список ФИО физических преподавателей из БД по 8 штук алфавитном порядке
     teachers_res = await session.execute(select(Teacher).order_by(Teacher.name))
     teachers = teachers_res.scalars().all()
 
@@ -165,7 +164,6 @@ async def approve_teacher_request(callback: CallbackQuery, session: AsyncSession
 @router.callback_query(F.data.startswith("link_teacher_"))
 async def link_teacher_finish(callback: CallbackQuery, session: AsyncSession):
     if not is_admin_check(callback.from_user.id): return
-    # link_teacher_{req_id}_{teacher_id}
     parts = callback.data.split("_")
     req_id = int(parts[2])
     t_id = int(parts[3])
@@ -179,9 +177,9 @@ async def link_teacher_finish(callback: CallbackQuery, session: AsyncSession):
         if user:
             user.teacher_profile_id = teacher.id
         await session.commit()
-
-        # Здесь в будущем можно вызвать триггер уведомления самого преподавателя о верификации
         await callback.answer(f"Преподаватель {teacher.name} успешно привязан!", show_alert=True)
+    else:
+        await callback.answer("Ошибка при привязке", show_alert=True)
 
     await show_requests_menu(callback)
 
@@ -204,7 +202,8 @@ async def view_feedback(callback: CallbackQuery, session: AsyncSession):
     page = int(callback.data.split("_")[-1])
 
     res = await session.execute(
-        select(Feedback).where(Feedback.is_reviewed == False).order_by(Feedback.created_at.desc()))
+        select(Feedback).where(Feedback.is_reviewed.is_(False)).order_by(Feedback.created_at.desc())
+    )
     feedbacks = res.scalars().all()
 
     if not feedbacks:

@@ -9,7 +9,10 @@ from config import settings
 
 class VkLoggingMiddleware(BaseMiddleware[Message]):
     async def pre(self):
-        # Метод выполняется ДО того, как сообщение попадет в хендлеры
+        """
+        Выполняется ДО того, как сообщение попадёт в хендлеры.
+        Важно: в конце вызываем self.next() для передачи управления дальше.
+        """
         async with async_session() as session:
             user = await get_user_by_platform_id(session, "vk", self.event.from_id)
             user_id = user.id if user else None
@@ -26,7 +29,7 @@ class VkLoggingMiddleware(BaseMiddleware[Message]):
 
             action = self.event.text or "[Вложение/Кнопка]"
 
-            # Записываем входящее действие
+            # Логируем входящее действие
             await add_log_entry(
                 session=session,
                 platform="vk",
@@ -36,3 +39,6 @@ class VkLoggingMiddleware(BaseMiddleware[Message]):
                 platform_user_id=self.event.from_id,
                 user_role=user_role
             )
+
+        # КРИТИЧЕСКИ ВАЖНО: передаём управление следующим middleware и хендлерам
+        await self.next()

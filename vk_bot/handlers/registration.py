@@ -78,7 +78,7 @@ async def vk_process_student_role(message: Message):
 )
 async def vk_process_student_group(message: Message):
     payload = json.loads(message.payload)
-    # Сохраняем промежуточные данные в стейт через встроенный пул vkbottle
+    # Сохраняем group_id в состоянии
     await vk_bot.state_dispenser.set(
         message.from_id,
         VkRegistrationStates.WAITING_FOR_FORMAT,
@@ -93,8 +93,11 @@ async def vk_process_student_group(message: Message):
 )
 async def vk_process_student_format(message: Message):
     payload = json.loads(message.payload)
-    state_data = message.state_peer.payload  # Извлекаем прошлый payload (group_id)
-    state_data["schedule_format"] = payload["format"]
+    # Получаем текущий payload состояния
+    state_data = message.state_peer.payload  # В vkbottle состояние хранится в message.state_peer
+    if not state_data:
+        state_data = {}
+    state_data["schedule_format"] = payload["format"]  # 'text' или 'image'
 
     await vk_bot.state_dispenser.set(
         message.from_id,
@@ -111,16 +114,32 @@ async def vk_process_student_format(message: Message):
 async def vk_process_student_final(message: Message):
     payload = json.loads(message.payload)
     state_data = message.state_peer.payload
-    await vk_bot.state_dispenser.delete(message.from_id)  # Сброс FSM
+    if not state_data:
+        await message.answer("Ошибка: данные регистрации потеряны. Начните заново с /start")
+        return
+
+    group_id = state_data.get("group_id")
+    schedule_format = state_data.get("schedule_format", "text")  # 'text' или 'image'
+    notif_enabled = bool(payload["notif"])
+
+    # Преобразуем schedule_format в формат БД: 'image' -> 'pic', 'text' -> 'text'
+    db_format = "pic" if schedule_format == "image" else "text"
+
+    await vk_bot.state_dispenser.delete(message.from_id)
 
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
         if user:
-            await user_service.set_user_group(session, user.id, state_data["group_id"])
+            # Привязываем группу
+            success = await user_service.set_user_group(session, user.id, group_id)
+            if not success:
+                await message.answer("❌ Ошибка: группа не найдена. Попробуйте снова /start")
+                return
+            # Обновляем настройки
             await user_service.update_user_preferences(
                 session, user.id,
-                msg_type=state_data["schedule_format"],
-                notifs_enabled=bool(payload["notif"])
+                schedule_type=db_format,
+                is_notification_on=notif_enabled
             )
 
     await message.answer("🎉 Регистрация в ВК успешно пройдена! Напишите /menu для начала работы.")

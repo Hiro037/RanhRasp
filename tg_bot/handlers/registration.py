@@ -33,11 +33,10 @@ def get_notif_keyboard() -> InlineKeyboardMarkup:
 
 @registration_router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    """Точка входа. Создает пользователя (гостя) и предлагает выбрать роль."""
     async with async_session() as session:
-        user = await user_service.get_user_by_platform_id(session, "tg", message.from_user.id)
+        user = await user_service.get_user_by_platform_id(session, "telegram", message.from_user.id)
         if not user:
-            await user_service.create_user(session, "tg", message.from_user.id)
+            user = await user_service.create_user(session, "telegram", message.from_user.id)
 
     await state.set_state(RegistrationStates.waiting_for_role)
     await message.answer(
@@ -51,7 +50,6 @@ async def cmd_start(message: Message, state: FSMContext):
 
 @registration_router.callback_query(RegistrationStates.waiting_for_role, F.data == "role:student")
 async def process_student_role(callback: CallbackQuery, state: FSMContext):
-    """Переход на ветку студента: выбор группы."""
     async with async_session() as session:
         groups = await user_service.get_all_groups(session)
 
@@ -61,7 +59,6 @@ async def process_student_role(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # Строим клавиатуру групп
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=g.name, callback_data=f"group:{g.id}")] for g in groups
     ])
@@ -73,7 +70,6 @@ async def process_student_role(callback: CallbackQuery, state: FSMContext):
 
 @registration_router.callback_query(RegistrationStates.waiting_for_group, F.data.startswith("group:"))
 async def process_student_group(callback: CallbackQuery, state: FSMContext):
-    """Сохранение группы и запрос формата расписания."""
     group_id = int(callback.data.split(":")[1])
     await state.update_data(group_id=group_id)
 
@@ -87,9 +83,11 @@ async def process_student_group(callback: CallbackQuery, state: FSMContext):
 
 @registration_router.callback_query(RegistrationStates.waiting_for_format, F.data.startswith("format:"))
 async def process_student_format(callback: CallbackQuery, state: FSMContext):
-    """Сохранение формата и запрос уведомлений."""
-    sc_format = callback.data.split(":")[1]
-    await state.update_data(schedule_format=sc_format)
+    # В БД храним 'text' или 'pic', но из callback приходит 'text' или 'image'
+    fmt = callback.data.split(":")[1]
+    # Преобразуем 'image' -> 'pic' для БД, 'text' -> 'text'
+    schedule_type = "pic" if fmt == "image" else "text"
+    await state.update_data(schedule_type=schedule_type)
 
     await state.set_state(RegistrationStates.waiting_for_notifications)
     await callback.message.edit_text(
@@ -101,20 +99,25 @@ async def process_student_format(callback: CallbackQuery, state: FSMContext):
 
 @registration_router.callback_query(RegistrationStates.waiting_for_notifications, F.data.startswith("notif:"))
 async def process_student_final(callback: CallbackQuery, state: FSMContext):
-    """Финал регистрации студента. Запись всех данных в БД."""
     notif_val = bool(int(callback.data.split(":")[1]))
     user_data = await state.get_data()
     await state.clear()
 
     async with async_session() as session:
-        user = await user_service.get_user_by_platform_id(session, "tg", callback.from_user.id)
+        user = await user_service.get_user_by_platform_id(session, "telegram", callback.from_user.id)
         if user:
-            # Обновляем профиль в БД через сервисный слой
-            await user_service.set_user_group(session, user.id, user_data["group_id"])
+            # Привязываем группу
+            success = await user_service.set_user_group(session, user.id, user_data["group_id"])
+            if not success:
+                await callback.message.edit_text("❌ Ошибка: группа не найдена. Попробуйте снова /start")
+                await callback.answer()
+                return
+
+            # Обновляем настройки
             await user_service.update_user_preferences(
                 session, user.id,
-                msg_type=user_data["schedule_format"],
-                notifs_enabled=notif_val
+                schedule_type=user_data["schedule_type"],
+                is_notification_on=notif_val
             )
 
     await callback.message.edit_text(
@@ -128,7 +131,6 @@ async def process_student_final(callback: CallbackQuery, state: FSMContext):
 
 @registration_router.callback_query(RegistrationStates.waiting_for_role, F.data == "role:teacher")
 async def process_teacher_role(callback: CallbackQuery, state: FSMContext):
-    """Переход на ветку преподавателя: запрос ФИО."""
     await state.set_state(RegistrationStates.waiting_for_teacher_name)
     await callback.message.edit_text(
         "Введите Ваши ФИО (точно так же, как в официальном расписании).\n"
@@ -140,16 +142,12 @@ async def process_teacher_role(callback: CallbackQuery, state: FSMContext):
 
 @registration_router.message(RegistrationStates.waiting_for_teacher_name)
 async def process_teacher_name(message: Message, state: FSMContext):
-    """Прием ФИО и отправка заявки на верификацию (для Этапа 9)."""
     teacher_name = message.text.strip()
     await state.clear()
 
-    # По вашему плану (Этап 9) здесь создается заявка, которая ждет одобрения админом.
-    # Пока мы просто запишем ФИО в буфер или профиль со статусом "не верифицирован"
     async with async_session() as session:
-        user = await user_service.get_user_by_platform_id(session, "tg", message.from_user.id)
+        user = await user_service.get_user_by_platform_id(session, "telegram", message.from_user.id)
         if user:
-            # Кастомный метод сервиса (или создание профиля)
             await user_service.create_teacher_request(session, user.id, teacher_name)
 
     await message.answer(

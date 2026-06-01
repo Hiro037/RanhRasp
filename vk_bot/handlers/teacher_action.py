@@ -10,28 +10,30 @@ from database.models import Lesson
 from services import user_service, schedule_service
 from vk_bot.states import VkTeacherStates
 from vk_bot.loader import vk_bot
-
-# Переиспользуем асинхронную таску рассылки из TG хендлера для чистой архитектуры DRY
-from tg_bot.handlers.teacher_action import send_notification_to_students
 from utils.timezone import get_now
+
+# Переиспользуем общую функцию рассылки из telegram (она не зависит от платформы)
+# Но для VK нужна своя адаптация – сделаем отдельную, но с общей логикой
+# Чтобы не дублировать, создадим отдельный сервис уведомлений, но для простоты скопируем логику
+from tg_bot.loader import tg_bot  # для отправки в Telegram
 
 vk_teacher_labeler = BotLabeler()
 
 
 @vk_teacher_labeler.message(
-    func=lambda msg: msg.payload is not None and json.loads(msg.payload).get("menu") == "teacher_panel")
+    func=lambda msg: msg.payload is not None and json.loads(msg.payload).get("menu") == "teacher_panel"
+)
 async def vk_btn_add_comment(message: Message):
     """Вывод списка пар для учителя внутри ВКонтакте."""
     today = get_now().date()
 
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
-        if not user or user.role != "teacher" or not user.teacher_id:
+        if not user or user.teacher_profile_id is None:
             await message.answer("⚠️ У вас нет прав доступа к панели преподавателя.")
             return
 
-        # Твой сервис
-        lessons = await schedule_service.get_lessons_for_teacher(session, user.teacher_id, today)
+        lessons = await schedule_service.get_lessons_for_teacher(session, user.teacher_profile_id, today)
 
     if not lessons:
         kb = Keyboard(inline=True).add(Text("🔙 Назад", payload={"menu": "back"}), color=KeyboardButtonColor.SECONDARY)
@@ -77,7 +79,6 @@ async def vk_save_comment_and_notify(message: Message):
     await vk_bot.state_dispenser.delete(message.from_id)
 
     async with async_session() as session:
-        # Предварительно берем метаданные для генерации текста сообщения
         stmt = select(Lesson).where(Lesson.id == lesson_id).options(selectinload(Lesson.subject))
         res = await session.execute(stmt)
         lesson = res.scalars().first()
@@ -89,10 +90,35 @@ async def vk_save_comment_and_notify(message: Message):
         subject_name = lesson.subject.name if lesson.subject else "Без названия"
         start_time = lesson.start_datetime.strftime("%H:%M")
 
-        # Твой метод изменения данных в СУБД
         await schedule_service.add_comment_to_lesson(session, lesson_id, comment_text)
 
     await message.answer("✅ Комментарий сохранен! Студенты получат уведомления.")
 
-    # Запускаем фоновую задачу рассылки
-    asyncio.create_task(send_notification_to_students(lesson_id, subject_name, start_time, comment_text))
+    # Запускаем фоновую рассылку
+    asyncio.create_task(send_notification_to_students_vk(lesson_id, subject_name, start_time, comment_text))
+
+
+async def send_notification_to_students_vk(lesson_id: int, subject: str, time_str: str, comment: str):
+    """Фоновая рассылка студентам (и в VK, и в Telegram) с использованием общей логики."""
+    async with async_session() as session:
+        recipients = await schedule_service.get_students_for_lesson_notification(session, lesson_id)
+
+    text_tg = (
+        f"🔔 *Важное уведомление от преподавателя!*\n\n"
+        f"📖 Предмет: *{subject}*\n"
+        f"⏰ Время: *{time_str}*\n"
+        f"📝 Комментарий: _{comment}_"
+    )
+    text_vk = f"🔔 Важное уведомление от преподавателя!\n\n📖 Предмет: {subject}\n⏰ Время: {time_str}\n📝 Комментарий: {comment}"
+
+    for student in recipients:
+        if not student.is_notification_on:
+            continue
+        try:
+            if student.platform == "telegram":
+                await tg_bot.send_message(chat_id=student.platform_id, text=text_tg, parse_mode="Markdown")
+            elif student.platform == "vk":
+                await vk_bot.api.messages.send(peer_id=student.platform_id, message=text_vk, random_id=0)
+        except Exception as e:
+            print(f"Не удалось отправить уведомление пользователю {student.id} (platform={student.platform}): {e}")
+        await asyncio.sleep(0.04)

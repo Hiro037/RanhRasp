@@ -3,15 +3,13 @@ from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
+from sqlalchemy.orm import selectinload
 
 from database.connection import async_session
 from services import user_service, schedule_service
 from tg_bot import keyboards as kb
 from config import settings
 from utils.timezone import get_now
-
-# Предполагаем, что твой готовый модуль генерации картинок находится здесь
-# Функция должна принимать список занятий и дату, возвращать байты (bytes) изображения
 from utils.image_generator import generate_schedule_image
 
 menu_router = Router()
@@ -19,7 +17,6 @@ menu_router = Router()
 
 @menu_router.message(Command("menu"))
 async def show_main_menu(message: Message):
-    """Выводит приветствие и инлайн-кнопки главного меню."""
     is_admin = message.from_user.id in settings.TG_ADMINS
     await message.answer(
         "👋 Вы находитесь в главном меню системы расписания.\n"
@@ -30,7 +27,6 @@ async def show_main_menu(message: Message):
 
 @menu_router.callback_query(F.data == "menu:back")
 async def callback_back_to_menu(callback: CallbackQuery):
-    """Возврат в главное меню из расписания."""
     is_admin = callback.from_user.id in settings.TG_ADMINS
     await callback.message.edit_text(
         "👋 Вы находитесь в главном меню системы расписания.\n"
@@ -42,17 +38,14 @@ async def callback_back_to_menu(callback: CallbackQuery):
 
 @menu_router.callback_query(F.data == "menu:schedule")
 async def callback_show_initial_schedule(callback: CallbackQuery):
-    """Первичное нажатие кнопки 'Посмотреть расписание' (отдает на сегодня)."""
     today = get_now().date()
-    # Вызываем универсальную функцию отправки
     await send_schedule(callback, callback.from_user.id, today, edit_mode=False)
-    await callback.message.delete()  # Удаляем старое меню, чтобы не плодить сообщения
+    await callback.message.delete()
     await callback.answer()
 
 
 @menu_router.callback_query(F.data.startswith("sched_nav:"))
 async def handle_schedule_navigation(callback: CallbackQuery):
-    """Обработка кликов 'Назад' / 'Вперед' / 'Обновить'."""
     _, action, current_date_str = callback.data.split(":")
     current_date = datetime.strptime(current_date_str, "%Y-%m-%d").date()
 
@@ -61,7 +54,7 @@ async def handle_schedule_navigation(callback: CallbackQuery):
     elif action == "next":
         target_date = current_date + timedelta(days=1)
     else:
-        target_date = current_date  # refresh
+        target_date = current_date
 
     await send_schedule(callback, callback.from_user.id, target_date, edit_mode=True)
     await callback.answer()
@@ -69,14 +62,11 @@ async def handle_schedule_navigation(callback: CallbackQuery):
 
 async def send_schedule(event: CallbackQuery | Message, platform_user_id: int, target_date: date,
                         edit_mode: bool = False):
-    """
-    Универсальное ядро отправки расписания для Telegram.
-    Автоматически переключается между ТЕКСТОМ и КАРТИНКОЙ на основе настроек юзера.
-    """
     async with async_session() as session:
-        # 1. Получаем пользователя по его Telegram ID
-        user = await user_service.get_user_by_platform_id(session, "tg", platform_user_id)
-        if not user or not user.group_id:
+        user = await user_service.get_user_by_platform_id(session, "telegram", platform_user_id)
+
+        # Проверка наличия пользователя и групп
+        if not user or not user.groups:
             msg = "⚠️ Ошибка: ваш профиль не настроен. Пройдите регистрацию через /start"
             if isinstance(event, CallbackQuery):
                 await event.message.answer(msg)
@@ -84,34 +74,25 @@ async def send_schedule(event: CallbackQuery | Message, platform_user_id: int, t
                 await event.answer(msg)
             return
 
-        # 2. Безопасно вытаскиваем текстовое имя группы для шапки картинки/текста
-        group_name = "Неизвестная группа"
-        if hasattr(user, "group") and user.group:
-            group_name = user.group.name
-        else:
-            # Если связь в SQLAlchemy не была лениво подгружена, делаем быстрый точечный запрос
-            group = await user_service.get_group_by_id(session, user.group_id)
-            if group:
-                group_name = group.name
+        # Берём первую (и единственную) группу
+        group = user.groups[0]
+        group_name = group.name
+        group_id = group.id
 
-        # 3. Запрашиваем пары из СУБД и проверяем, есть ли учебные дни впереди
-        lessons = await schedule_service.get_lessons_for_student(session, user.group_id, target_date)
-        has_next = await schedule_service.has_lessons_future(session, target_date, group_id=user.group_id)
+        # Получаем занятия с подгрузкой связанных данных
+        lessons = await schedule_service.get_lessons_for_student(session, group_id, target_date)
+        has_next = await schedule_service.has_lessons_future(session, target_date, group_id=group_id)
 
-        # Генерируем адаптивную инлайн-клавиатуру
         reply_markup = kb.get_schedule_keyboard(target_date, has_next)
         date_str = target_date.strftime("%d.%m.%Y")
 
-        # 4. ОТПРАВКА В ГРАФИЧЕСКОМ ФОРМАТЕ (PNG)
-        if user.schedule_message_type == "image":
-            # Вызываем наш независимый модуль рендеринга
+        # Отправка в графическом формате
+        if user.schedule_message_type == "pic":  # в БД хранится 'pic' для картинки
             image_bytes = await generate_schedule_image(lessons, target_date, group_name)
             input_file = BufferedInputFile(image_bytes, filename=f"schedule_{date_str}.png")
             caption = f"🖼️ Расписание на {date_str} для группы *{group_name}*"
 
             if edit_mode and isinstance(event, CallbackQuery):
-                # Попытка сделать edit_text на фото вызовет ошибку Telegram API.
-                # Чтобы интерфейс не «прыгал», мы просто удаляем старое текстовое сообщение меню и шлем чистое фото.
                 try:
                     await event.message.delete()
                 except TelegramBadRequest:
@@ -123,7 +104,7 @@ async def send_schedule(event: CallbackQuery | Message, platform_user_id: int, t
                 await target.answer_photo(photo=input_file, caption=caption, reply_markup=reply_markup,
                                           parse_mode="Markdown")
 
-        # 5. ОТПРАВКА В ТЕКСТОВОМ ФОРМАТЕ
+        # Текстовый формат
         else:
             text = f"📅 *Расписание на {date_str}* | Группа: *{group_name}*\n\n"
             if not lessons:
@@ -142,7 +123,6 @@ async def send_schedule(event: CallbackQuery | Message, platform_user_id: int, t
                 try:
                     await event.message.edit_text(text, parse_mode="Markdown", reply_markup=reply_markup)
                 except TelegramBadRequest:
-                    # На случай, если текст сообщения абсолютно идентичен (кнопка "Обновить" при отсутствии изменений)
                     await event.answer("🔄 Данные актуальны")
             else:
                 target = event.message if isinstance(event, CallbackQuery) else event
