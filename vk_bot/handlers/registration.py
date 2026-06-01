@@ -164,7 +164,9 @@ async def vk_process_teacher_name(message: Message):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
         if user:
-            await user_service.create_teacher_request(session, user.id, teacher_name)
+            request = await user_service.create_teacher_request(session, user.id, teacher_name)
+            from services.notification_service import notify_admins_about_teacher_request
+            await notify_admins_about_teacher_request("vk", user.id, teacher_name, request.id)
 
     await message.answer(
         f"Спасибо! Заявка для преподавателя ({teacher_name}) отправлена на модерацию админам ВК."

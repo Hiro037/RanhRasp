@@ -148,7 +148,10 @@ async def process_teacher_name(message: Message, state: FSMContext):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "telegram", message.from_user.id)
         if user:
-            await user_service.create_teacher_request(session, user.id, teacher_name)
+            request = await user_service.create_teacher_request(session, user.id, teacher_name)
+            # Отправляем уведомление админам
+            from services.notification_service import notify_admins_about_teacher_request
+            await notify_admins_about_teacher_request("telegram", user.id, teacher_name, request.id)
 
     await message.answer(
         f"Спасибо, {teacher_name}! Ваша заявка на доступ к панели преподавателя отправлена администраторам.\n"

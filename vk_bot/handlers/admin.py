@@ -6,6 +6,7 @@ from database.connection import async_session
 from database.models import User, Teacher, TeacherRequest, Feedback
 from services.paginator import get_page_items
 from config import Settings
+from vk_bot.loader import vk_bot
 
 bp = Blueprint("AdminHandlers")
 settings = Settings()
@@ -112,6 +113,15 @@ async def process_teacher_request_vk(message: Message, req_id: int):
                 if user:
                     user.teacher_profile_id = teacher.id
                 await session.commit()
+                # Уведомление преподавателю
+                try:
+                    await vk_bot.api.messages.send(
+                        peer_id=user.platform_id,
+                        message=f"🎉 Ваша заявка на верификацию преподавателя одобрена! Теперь вы можете добавлять комментарии к занятиям.",
+                        random_id=0
+                    )
+                except:
+                    pass
                 return f"✅ Преподаватель {teacher.name} верифицирован."
             else:
                 return "❌ Преподаватель с таким именем не найден в базе. Создайте его через парсер."

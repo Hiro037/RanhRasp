@@ -10,6 +10,7 @@ from config import Settings
 from database.models import User, Teacher, TeacherRequest, Feedback, Logs
 from services.user_service import determine_user_role
 from services.paginator import get_page_items
+from tg_bot.loader import tg_bot
 
 router = Router()
 settings = Settings()
@@ -244,3 +245,140 @@ async def read_feedback_status(callback: CallbackQuery, session: AsyncSession):
         await session.commit()
         await callback.answer("Рассмотрено.")
     await show_requests_menu(callback)
+
+    @router.callback_query(F.data.startswith("quick_approve_req:"))
+    async def quick_approve_request(callback: CallbackQuery, session: AsyncSession):
+        """Быстрое принятие заявки – открывает список преподавателей для связывания."""
+        if not is_admin_check(callback.from_user.id):
+            await callback.answer("Нет прав", show_alert=True)
+            return
+
+        req_id = int(callback.data.split(":")[1])
+        req = await session.get(TeacherRequest, req_id)
+        if not req or req.status != "pending":
+            await callback.answer("Заявка уже обработана", show_alert=True)
+            return
+
+        # Показываем список преподавателей (аналогично approve_req_, но без пагинации с первого раза)
+        teachers_res = await session.execute(select(Teacher).order_by(Teacher.name))
+        teachers = teachers_res.scalars().all()
+
+        page = 1
+        items, has_prev, has_next = get_page_items(teachers, page, page_size=8)
+
+        text = f"🔗 **Связывание аккаунта преподавателя**\nЗаявка от: {req.teacher_name}\nВыберите преподавателя из базы (Страница {page}):"
+
+        buttons = []
+        for t in items:
+            buttons.append([InlineKeyboardButton(text=t.name, callback_data=f"quick_link_teacher_{req_id}_{t.id}")])
+
+        nav_buttons = []
+        if has_prev: nav_buttons.append(
+            InlineKeyboardButton(text="⬅️", callback_data=f"quick_approve_req_page_{req_id}_{page - 1}"))
+        if has_next: nav_buttons.append(
+            InlineKeyboardButton(text="➡️", callback_data=f"quick_approve_req_page_{req_id}_{page + 1}"))
+        if nav_buttons:
+            buttons.append(nav_buttons)
+        buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="admin_requests")])
+
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("quick_approve_req_page_"))
+    async def quick_approve_page(callback: CallbackQuery, session: AsyncSession):
+        """Пагинация списка преподавателей для быстрого принятия."""
+        if not is_admin_check(callback.from_user.id):
+            return
+        parts = callback.data.split("_")
+        req_id = int(parts[4])
+        page = int(parts[5])
+
+        req = await session.get(TeacherRequest, req_id)
+        if not req:
+            await callback.answer("Заявка не найдена")
+            return
+
+        teachers_res = await session.execute(select(Teacher).order_by(Teacher.name))
+        teachers = teachers_res.scalars().all()
+        items, has_prev, has_next = get_page_items(teachers, page, page_size=8)
+
+        text = f"🔗 **Связывание аккаунта преподавателя**\nЗаявка от: {req.teacher_name}\nВыберите преподавателя из базы (Страница {page}):"
+        buttons = []
+        for t in items:
+            buttons.append([InlineKeyboardButton(text=t.name, callback_data=f"quick_link_teacher_{req_id}_{t.id}")])
+        nav_buttons = []
+        if has_prev: nav_buttons.append(
+            InlineKeyboardButton(text="⬅️", callback_data=f"quick_approve_req_page_{req_id}_{page - 1}"))
+        if has_next: nav_buttons.append(
+            InlineKeyboardButton(text="➡️", callback_data=f"quick_approve_req_page_{req_id}_{page + 1}"))
+        if nav_buttons:
+            buttons.append(nav_buttons)
+        buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="admin_requests")])
+
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("quick_link_teacher_"))
+    async def quick_link_teacher(callback: CallbackQuery, session: AsyncSession):
+        """Финальная привязка преподавателя к пользователю."""
+        if not is_admin_check(callback.from_user.id):
+            return
+        parts = callback.data.split("_")
+        req_id = int(parts[3])
+        teacher_id = int(parts[4])
+
+        req = await session.get(TeacherRequest, req_id)
+        teacher = await session.get(Teacher, teacher_id)
+
+        if req and teacher and req.status == "pending":
+            req.status = "approved"
+            user = await session.get(User, req.user_id)
+            if user:
+                user.teacher_profile_id = teacher.id
+            await session.commit()
+            await callback.answer(f"✅ Преподаватель {teacher.name} успешно привязан!", show_alert=True)
+
+            # Уведомляем преподавателя об одобрении
+            if user and user.platform == "telegram":
+                try:
+                    await tg_bot.send_message(
+                        chat_id=user.platform_id,
+                        text=f"🎉 Ваша заявка на верификацию преподавателя одобрена!\n"
+                             f"Теперь вы можете добавлять комментарии к занятиям через кнопку '✏️ Добавить комментарий' в расписании."
+                    )
+                except Exception as e:
+                    print(f"Не удалось уведомить преподавателя {user.id}: {e}")
+        else:
+            await callback.answer("Ошибка при привязке", show_alert=True)
+
+        # Вернуться в админ-панель или в меню запросов
+        await show_requests_menu(callback)
+
+    @router.callback_query(F.data.startswith("quick_reject_req:"))
+    async def quick_reject_request(callback: CallbackQuery, session: AsyncSession):
+        """Быстрое отклонение заявки."""
+        if not is_admin_check(callback.from_user.id):
+            await callback.answer("Нет прав", show_alert=True)
+            return
+        req_id = int(callback.data.split(":")[1])
+        req = await session.get(TeacherRequest, req_id)
+        if req and req.status == "pending":
+            req.status = "rejected"
+            await session.commit()
+            await callback.answer("❌ Заявка отклонена", show_alert=True)
+
+            # Уведомляем преподавателя об отклонении
+            user = await session.get(User, req.user_id)
+            if user and user.platform == "telegram":
+                try:
+                    await tg_bot.send_message(
+                        chat_id=user.platform_id,
+                        text="😞 Ваша заявка на верификацию преподавателя была отклонена. "
+                             "Свяжитесь с администратором для уточнения деталей."
+                    )
+                except Exception as e:
+                    print(f"Не удалось уведомить преподавателя {user.id}: {e}")
+        else:
+            await callback.answer("Заявка уже обработана", show_alert=True)
+
+        await show_requests_menu(callback)
