@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+Парсер расписания из DOC/DOCX файлов.
+Исправленная версия с корректной работой с async_session.
+"""
+
 import argparse
 import asyncio
 import os
@@ -33,7 +39,7 @@ def clean_and_split_row(line: str) -> list[str]:
 
 
 def parse_date(text: str) -> date | None:
-    """Извлекает дату, приводя двухзначный год к четырехзначному (26 -> 2026)."""
+    """Извлекает дату, приводя двухзначный год к четырёхзначному (26 -> 2026)."""
     match = DATE_PATTERN.search(text)
     if match:
         day, month, year = match.groups()
@@ -53,7 +59,7 @@ def parse_start_time(text: str) -> time | None:
 
 
 def clean_teacher_name(text: str) -> str:
-    """Очищает строку от ученых степеней (доц., к.э.н.) и возвращает ФИО."""
+    """Очищает строку от учёных степеней (доц., к.э.н.) и возвращает ФИО."""
     no_titles = ACADEMIC_TITLES_PATTERN.sub("", text)
     match = CLEAN_NAME_PATTERN.search(no_titles)
     if match:
@@ -64,12 +70,18 @@ def clean_teacher_name(text: str) -> str:
 def determine_lesson_type(subject_text: str) -> str:
     """Определяет тип занятия по маркерам (л), (пр)."""
     text_lower = subject_text.lower()
-    if "(л)" in text_lower or "лекция" in text_lower: return "лекция"
-    if "(пр)" in text_lower or "практика" in text_lower: return "практика"
-    if "(конс)" in text_lower or "консультация" in text_lower: return "консультация"
-    if "зачёт с оценкой" in text_lower or "диф.зачет" in text_lower: return "зачет с оценкой"
-    if "зачёт" in text_lower: return "зачет"
-    if "экзамен" in text_lower: return "экзамен"
+    if "(л)" in text_lower or "лекция" in text_lower:
+        return "лекция"
+    if "(пр)" in text_lower or "практика" in text_lower:
+        return "практика"
+    if "(конс)" in text_lower or "консультация" in text_lower:
+        return "консультация"
+    if "зачёт с оценкой" in text_lower or "диф.зачет" in text_lower:
+        return "зачет с оценкой"
+    if "зачёт" in text_lower:
+        return "зачет"
+    if "экзамен" in text_lower:
+        return "экзамен"
     return "другое"
 
 
@@ -81,6 +93,7 @@ def clean_subject_name(text: str) -> str:
 
 
 async def get_or_create(session, model, field, value: str):
+    """Универсальный метод получения или создания объекта."""
     stmt = select(model).where(field == value)
     result = await session.execute(stmt)
     obj = result.scalars().first()
@@ -92,20 +105,23 @@ async def get_or_create(session, model, field, value: str):
 
 
 async def parse_docx_to_db(file_path: str, group_name: str):
-    # Проверяем расширение и при необходимости конвертируем .doc -> .docx
+    """Основная функция импорта расписания из файла."""
     target_file, is_temporary = ensure_docx(file_path)
-
     print(f"[Парсер] Начинаем чтение сетки расписания из: {target_file}")
+
     doc = Document(target_file)
     lines = []
 
     for p in doc.paragraphs:
-        if p.text.strip(): lines.append(p.text)
+        if p.text.strip():
+            lines.append(p.text)
     for table in doc.tables:
         for row in table.rows:
             row_text = "".join([cell.text.strip() for cell in row.cells])
-            if row_text.strip(" "): lines.append(row_text)
+            if row_text.strip(" "):
+                lines.append(row_text)
 
+    # Используем async_session как контекстный менеджер
     async with async_session() as session:
         group_obj = await get_or_create(session, Group, Group.name, group_name)
         current_date: date | None = None
@@ -182,12 +198,11 @@ async def parse_docx_to_db(file_path: str, group_name: str):
                 session.add(new_link)
 
         await session.commit()
-        print("[Парсер] Импорт завершен!")
+        print("[Парсер] Импорт завершён!")
 
-    # Если мы создавали временный .docx файл — удаляем его, чтобы не плодить копии
     if is_temporary and os.path.exists(target_file):
         os.remove(target_file)
-        print("[Конвертер] Временный файл .docx успешно удален.")
+        print("[Конвертер] Временный файл .docx успешно удалён.")
 
 
 if __name__ == "__main__":
