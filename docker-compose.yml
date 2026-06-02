@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: ranhrasp_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-ranhrasp}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secretpassword}
+      POSTGRES_DB: ${DB_NAME:-ranhrasp_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ranhrasp} -d ${DB_NAME:-ranhrasp_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: ranhrasp_app
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env                     # Загружает ВСЕ переменные из .env, включая DATABASE_URL
+    environment:
+      # Переопределяем host для DATABASE_URL, т.к. в .env может быть localhost
+      DATABASE_URL: ${DATABASE_URL}   # берём из .env, но убедитесь, что host=db
+      TG_TOKEN: ${TG_TOKEN}
+      VK_TOKEN: ${VK_TOKEN}
+      TG_ADMINS: ${TG_ADMINS}
+      VK_ADMINS: ${VK_ADMINS}
+      ENABLE_DAILY_NOTIFICATIONS: ${ENABLE_DAILY_NOTIFICATIONS:-true}
+    shm_size: 2gb
+
+
+volumes:
+  postgres_data:
