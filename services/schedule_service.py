@@ -4,8 +4,12 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import Lesson, LessonGroup, GroupUser, User
 
-async def get_lessons_for_student(session: AsyncSession, group_id: int, target_date: date) -> list[Lesson]:
-    """Получает список занятий для конкретной группы на выбранную дату."""
+async def get_lessons_for_student(
+    session: AsyncSession,
+    group_id: int,
+    target_date: date
+) -> list[Lesson]:
+
     stmt = (
         select(Lesson)
         .join(LessonGroup)
@@ -15,14 +19,24 @@ async def get_lessons_for_student(session: AsyncSession, group_id: int, target_d
                 func.date(Lesson.start_datetime) == target_date
             )
         )
-        .options(selectinload(Lesson.groups)) # подгружаем связанные объекты, если нужно
+        .options(
+            selectinload(Lesson.teacher),
+            selectinload(Lesson.subject),
+            selectinload(Lesson.classroom),
+            selectinload(Lesson.groups),
+        )
         .order_by(Lesson.start_datetime)
     )
+
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
-async def get_lessons_for_teacher(session: AsyncSession, teacher_id: int, target_date: date) -> list[Lesson]:
-    """Получает список занятий для преподавателя на выбранную дату."""
+async def get_lessons_for_teacher(
+    session: AsyncSession,
+    teacher_id: int,
+    target_date: date
+) -> list[Lesson]:
+
     stmt = (
         select(Lesson)
         .where(
@@ -31,8 +45,15 @@ async def get_lessons_for_teacher(session: AsyncSession, teacher_id: int, target
                 func.date(Lesson.start_datetime) == target_date
             )
         )
+        .options(
+            selectinload(Lesson.teacher),
+            selectinload(Lesson.subject),
+            selectinload(Lesson.classroom),
+            selectinload(Lesson.groups),
+        )
         .order_by(Lesson.start_datetime)
     )
+
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
