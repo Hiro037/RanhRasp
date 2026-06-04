@@ -1,12 +1,12 @@
-from vkbottle.bot import Blueprint, Message
+from vkbottle.bot import Blueprint, Message, BotLabeler
 
 from database.connection import async_session
 from services import user_service
 
-bp = Blueprint("SettingsFeedbackHandlers")
+bp = BotLabeler()
 
 
-@bp.on.message(text="Настройки")
+@bp.message(text="Настройки")
 async def settings_main_vk(message: Message):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
@@ -25,7 +25,7 @@ async def settings_main_vk(message: Message):
         )
 
 
-@bp.on.message(text="Переключить уведомления")
+@bp.message(text="Переключить уведомления")
 async def toggle_not_vk(message: Message):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
@@ -38,7 +38,7 @@ async def toggle_not_vk(message: Message):
         return "❌ Пользователь не найден."
 
 
-@bp.on.message(text="Переключить формат")
+@bp.message(text="Переключить формат")
 async def toggle_fmt_vk(message: Message):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
@@ -49,7 +49,7 @@ async def toggle_fmt_vk(message: Message):
         return "❌ Пользователь не найден."
 
 
-@bp.on.message(text="Поменять группу <group_name>")
+@bp.message(text="Поменять группу <group_name>")
 async def change_grp_vk(message: Message, group_name: str):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
@@ -62,7 +62,7 @@ async def change_grp_vk(message: Message, group_name: str):
         return "❌ Ошибка. Такой группы не найдено в базе данных."
 
 
-@bp.on.message(text="Отзыв")
+@bp.message(text="Отзыв")
 async def feedback_start_vk(message: Message):
     # VK не поддерживает FSM так же легко, поэтому используем простой подход:
     # сохраняем состояние в БД или просто просим отправить сообщение
@@ -79,7 +79,7 @@ async def feedback_start_vk(message: Message):
     bp._pending_feedback[message.from_id] = True
 
 
-@bp.on.message(func=lambda msg: hasattr(bp, '_pending_feedback') and bp._pending_feedback.get(msg.from_id))
+@bp.message(func=lambda msg: hasattr(bp, '_pending_feedback') and bp._pending_feedback.get(msg.from_id))
 async def feedback_receive_vk(message: Message):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)

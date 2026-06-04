@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from vkbottle.bot import Blueprint, Message
 from sqlalchemy import select, func
+from vkbottle.framework.labeler import BotLabeler
 
 from database.connection import async_session
 from database.models import User, Teacher, TeacherRequest, Feedback
@@ -8,15 +9,15 @@ from services.paginator import get_page_items
 from config import Settings
 from vk_bot.loader import vk_bot
 
-bp = Blueprint("AdminHandlers")
-settings = Settings()
+bp = BotLabeler()
+settings = Settings
 
 
 def is_admin_vk(user_id: int) -> bool:
     return user_id in settings.VK_ADMINS
 
 
-@bp.on.message(text="Админ-панель")
+@bp.message(text="Админ-панель")
 async def show_admin_panel_vk(message: Message):
     if not is_admin_vk(message.from_id):
         return "У вас нет прав администратора."
@@ -30,7 +31,7 @@ async def show_admin_panel_vk(message: Message):
     return text
 
 
-@bp.on.message(text="Админ статистика")
+@bp.message(text="Админ статистика")
 async def stats_vk(message: Message):
     if not is_admin_vk(message.from_id):
         return
@@ -59,7 +60,7 @@ async def stats_vk(message: Message):
 
 
 # Дополнительные админ-обработчики для заявок и фидбека (по аналогии с Telegram)
-@bp.on.message(text="Админ заявки")
+@bp.message(text="Админ заявки")
 async def show_teacher_requests_vk(message: Message):
     if not is_admin_vk(message.from_id):
         return
@@ -91,7 +92,7 @@ async def show_teacher_requests_vk(message: Message):
     return text
 
 
-@bp.on.message(text=["Одобрить заявку <req_id>", "Отклонить заявку <req_id>"])
+@bp.message(text=["Одобрить заявку <req_id>", "Отклонить заявку <req_id>"])
 async def process_teacher_request_vk(message: Message, req_id: int):
     if not is_admin_vk(message.from_id):
         return
@@ -131,7 +132,7 @@ async def process_teacher_request_vk(message: Message, req_id: int):
             return "❌ Заявка отклонена."
 
 
-@bp.on.message(text="Админ фидбек")
+@bp.message(text="Админ фидбек")
 async def show_feedback_vk(message: Message):
     if not is_admin_vk(message.from_id):
         return
@@ -161,7 +162,7 @@ async def show_feedback_vk(message: Message):
     return text
 
 
-@bp.on.message(text="Прочитано <fb_id>")
+@bp.message(text="Прочитано <fb_id>")
 async def mark_feedback_read_vk(message: Message, fb_id: int):
     if not is_admin_vk(message.from_id):
         return

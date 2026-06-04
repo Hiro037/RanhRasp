@@ -25,17 +25,12 @@ services:
       db:
         condition: service_healthy
     env_file:
-      - .env                     # Загружает ВСЕ переменные из .env, включая DATABASE_URL
+      - .env
     environment:
-      # Переопределяем host для DATABASE_URL, т.к. в .env может быть localhost
-      DATABASE_URL: ${DATABASE_URL}   # берём из .env, но убедитесь, что host=db
-      TG_TOKEN: ${TG_TOKEN}
-      VK_TOKEN: ${VK_TOKEN}
-      TG_ADMINS: ${TG_ADMINS}
-      VK_ADMINS: ${VK_ADMINS}
-      ENABLE_DAILY_NOTIFICATIONS: ${ENABLE_DAILY_NOTIFICATIONS:-true}
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-ranhrasp}:${DB_PASSWORD:-secretpassword}@db:5432/${DB_NAME:-ranhrasp_db}
     shm_size: 2gb
-
+    volumes:
+      - ./logs:/app/logs
 
 volumes:
   postgres_data:

@@ -1,14 +1,11 @@
-# Используем официальный образ Python 3.12 slim
 FROM python:3.12-slim
 
-# Устанавливаем переменные окружения для Python
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    POETRY_VERSION=2.1.0
 
-# Устанавливаем системные зависимости:
-# - gcc, libpq-dev: для psycopg2 / asyncpg (хотя asyncpg не требует компиляции, но оставим)
-# - Зависимости Playwright (Chromium)
+# Системные зависимости
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
@@ -28,20 +25,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем рабочую директорию
+# Установка Poetry
+RUN pip install --no-cache-dir "poetry==$POETRY_VERSION"
+RUN poetry config virtualenvs.create false  # Устанавливаем пакеты в систему
+
 WORKDIR /app
 
 # Копируем файлы зависимостей
-COPY pyproject.toml ./
+COPY pyproject.toml poetry.lock* ./
 
-# Устанавливаем Python-пакеты (поддерживает pyproject.toml без setup.py)
-RUN pip install --no-cache-dir .
+# Создаём README.md, если его нет (poetry требует)
+RUN if [ ! -f README.md ]; then echo "# RanhRasp" > README.md; fi
 
-# Копируем остальной код проекта
+# Устанавливаем только зависимости (без самого проекта)
+RUN poetry install --no-root --no-interaction --no-ansi
+
+# Копируем весь код
 COPY . .
 
-# Устанавливаем браузер Chromium для Playwright
+# Устанавливаем браузер Playwright
 RUN playwright install chromium
 
-# Команда запуска
 CMD ["python", "main.py"]

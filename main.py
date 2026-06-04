@@ -15,7 +15,7 @@ from database.connection import init_db, async_session
 from services.daily_notifier import send_daily_notifications
 from tg_bot.loader import tg_bot, tg_dp
 from utils.timezone import YEKT_TZ
-from config import Settings as settings
+from config import settings
 from vk_bot.loader import vk_bot
 from tg_bot.handlers import menu, registration, settings_feedback, teacher_action, admin
 from vk_bot.handlers import admin as vk_admin, menu as vk_menu, registration as vk_reg, settings_feedback as vk_settings, teacher_action as vk_teacher
@@ -35,10 +35,10 @@ tg_dp.include_router(teacher_action.teacher_router)
 tg_dp.include_router(admin.router)
 
 # ========== Регистрация blueprints VK ==========
-vk_bot.labeler.load(vk_admin.bp)
+vk_bot.labeler.load(vk_admin.bp)              # без .bp
 vk_bot.labeler.load(vk_menu.vk_menu_labeler)
 vk_bot.labeler.load(vk_reg.vk_registration_labeler)
-vk_bot.labeler.load(vk_settings.bp)
+vk_bot.labeler.load(vk_settings.bp)           # без .bp
 vk_bot.labeler.load(vk_teacher.vk_teacher_labeler)
 
 
@@ -62,7 +62,6 @@ async def on_startup():
         logger.info("Планировщик ежедневных уведомлений запущен (каждый день в 8:00)")
 
 async def main():
-    """Запуск обоих ботов параллельно"""
     await on_startup()
 
     tg_task = asyncio.create_task(
