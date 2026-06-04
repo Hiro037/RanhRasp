@@ -57,7 +57,7 @@ async def vk_send_schedule_core(message: Message, target_date: date, from_week_m
             await message.answer("⚠️ Сначала зарегистрируйтесь: /start")
             return
 
-        role = determine_user_role(user)
+        role = await determine_user_role(user)
 
         lessons = []
         entity_name = None

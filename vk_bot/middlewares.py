@@ -7,11 +7,19 @@ from services.user_service import get_user_by_platform_id
 from config import settings
 
 
-class VkLoggingMiddleware(BaseMiddleware):
-    async def pre(self, event: Message, _):
-        """Выполняется ДО хендлеров"""
+class VkLoggingMiddleware(BaseMiddleware[Message]):
+
+    async def pre(self):
+        event = self.event
+        print("MIDDLEWARE:", self.event.text)
+
         async with async_session() as session:
-            user = await get_user_by_platform_id(session, "vk", event.from_id)
+            user = await get_user_by_platform_id(
+                session,
+                "vk",
+                event.from_id,
+            )
+
             user_id = user.id if user else None
 
             if event.from_id in settings.VK_ADMINS:
@@ -32,7 +40,8 @@ class VkLoggingMiddleware(BaseMiddleware):
                 status="success",
                 user_id=user_id,
                 platform_user_id=event.from_id,
-                user_role=user_role
+                user_role=user_role,
             )
 
-        await self.next()
+    async def post(self):
+        pass

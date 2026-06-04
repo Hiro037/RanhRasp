@@ -5,7 +5,7 @@ from utils.timezone import get_now
 
 
 def get_vk_inline_main_menu(is_admin: bool = False) -> str:
-    kb = Keyboard(one_time=False, inline=True)
+    kb = Keyboard(inline=True)
     kb.add(Text("📅 Расписание", payload={"menu": "schedule"}), color=KeyboardButtonColor.PRIMARY)
     kb.row()
     kb.add(Text("⚙️ Настройки", payload={"menu": "settings"}), color=KeyboardButtonColor.SECONDARY)
@@ -26,7 +26,7 @@ def get_vk_schedule_keyboard(target_date: date, has_next: bool, role: str = "stu
     """
     today = get_now().date()
     date_str = target_date.strftime("%Y-%m-%d")
-    kb = Keyboard(one_time=False, inline=True)
+    kb = Keyboard(inline=True)
 
     # Кнопка "Предыдущий день" – только если это не сегодня
     if target_date != today:
@@ -50,7 +50,7 @@ def get_vk_schedule_keyboard(target_date: date, has_next: bool, role: str = "stu
 
 
 def get_vk_schedule_period_keyboard() -> str:
-    kb = Keyboard(one_time=False, inline=True)
+    kb = Keyboard(inline=True)
     kb.add(Text("📅 Сегодня", payload={"menu": "schedule_today"}), color=KeyboardButtonColor.PRIMARY)
     kb.add(Text("📆 Завтра", payload={"menu": "schedule_tomorrow"}), color=KeyboardButtonColor.PRIMARY)
     kb.row()
@@ -64,7 +64,7 @@ def get_vk_schedule_period_keyboard() -> str:
 def get_vk_schedule_keyboard(target_date: date, has_next: bool, role: str = "student") -> str:
     today = get_now().date()
     date_str = target_date.strftime("%Y-%m-%d")
-    kb = Keyboard(one_time=False, inline=True)
+    kb = Keyboard(inline=True)
 
     if target_date != today:
         kb.add(Text("⬅️ День", payload={"vk_nav": f"prev:{date_str}"}), color=KeyboardButtonColor.PRIMARY)
