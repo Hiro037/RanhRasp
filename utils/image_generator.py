@@ -4,6 +4,8 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from playwright.async_api import async_playwright
 
+from utils.timezone import YEKT_TZ
+
 # ========== НАСТРОЙКА ПУТЕЙ И ШАБЛОНОВ ==========
 BASE_DIR = Path(__file__).resolve().parent.parent # Корневая папка проекта
 TEMPLATES_DIR = BASE_DIR / "templates" / "schedule"
@@ -24,7 +26,7 @@ env = Environment(
 
 def format_time(dt: datetime) -> str:
     """Форматирование времени начала пары."""
-    return dt.strftime("%H:%M")
+    return dt.astimezone(YEKT_TZ).strftime("%H:%M")
 
 def format_date_readable(d: date) -> str:
     """Форматирование даты на русском языке."""

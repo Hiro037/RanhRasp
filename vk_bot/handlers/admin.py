@@ -6,11 +6,10 @@ from vkbottle.framework.labeler import BotLabeler
 from database.connection import async_session
 from database.models import User, Teacher, TeacherRequest, Feedback
 from services.paginator import get_page_items
-from config import Settings
+from config import settings
 from vk_bot.loader import vk_bot
 
 bp = BotLabeler()
-settings = Settings
 
 
 def is_admin_vk(user_id: int) -> bool:
@@ -31,7 +30,7 @@ async def show_admin_panel_vk(message: Message):
     return text
 
 
-@bp.message(text="Админ статистика")
+@bp.message(text=["Админ статистика", "📊 Статистика", "Статистика"])
 async def stats_vk(message: Message):
     if not is_admin_vk(message.from_id):
         return
@@ -98,6 +97,7 @@ async def process_teacher_request_vk(message: Message, req_id: int):
         return
 
     async with async_session() as session:
+        req_id = int(req_id)
         req = await session.get(TeacherRequest, req_id)
         if not req:
             return "❌ Заявка не найдена."

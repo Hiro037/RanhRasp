@@ -88,7 +88,7 @@ def _format_lessons_text(lessons, entity_name: str, date_str: str) -> str:
         text += f"\n👥 *{entity_name}*"
     text += "\n\n"
     for idx, lesson in enumerate(lessons, 1):
-        time_start = lesson.start_datetime.strftime("%H:%M")
+        time_start = lesson.start_datetime.astimezone(YEKT_TZ).strftime("%H:%M")
         subject = lesson.subject.name if lesson.subject else "—"
         teacher = lesson.teacher.name if lesson.teacher else "Не указан"
         classroom = lesson.classroom.name if lesson.classroom else "—"

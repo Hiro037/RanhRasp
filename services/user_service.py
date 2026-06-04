@@ -70,10 +70,10 @@ async def get_group_by_name(session: AsyncSession, group_name: str) -> Group | N
 
 async def determine_user_role(user: User) -> str:
     """Динамически определяет роль пользователя: admin, teacher, student."""
-    if user.platform == "telegram" and user.platform_id in settings.TG_ADMINS:
-        return "admin"
-    if user.platform == "vk" and user.platform_id in settings.VK_ADMINS:
-        return "admin"
+    #if user.platform == "telegram" and user.platform_id in settings.TG_ADMINS:
+     #   return "admin"
+    #if user.platform == "vk" and user.platform_id in settings.VK_ADMINS:
+     #   return "admin"
     if user.teacher_profile_id is not None:
         return "teacher"
     return "student"
@@ -94,8 +94,8 @@ async def update_user_preferences(
     """
     update_data = {}
     if schedule_type is not None:
-        # Приводим к формату БД: 'image' -> 'pic', 'text' -> 'text'
-        db_type = "pic" if schedule_type == "image" else "text"
+        # Приводим к формату БД
+        db_type = "pic" if schedule_type == "pic" else "text"
         update_data["schedule_message_type"] = db_type
     if is_notification_on is not None:
         update_data["is_notification_on"] = is_notification_on

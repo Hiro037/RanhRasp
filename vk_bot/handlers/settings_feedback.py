@@ -6,7 +6,7 @@ from services import user_service
 bp = BotLabeler()
 
 
-@bp.message(text="Настройки")
+@bp.message(text=["Настройки","⚙️ Настройки"])
 async def settings_main_vk(message: Message):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
@@ -17,7 +17,7 @@ async def settings_main_vk(message: Message):
         format_text = "Картинка" if user.schedule_message_type == "pic" else "Текст"
         group_text = user.groups[0].name if user.groups else "Не выбрана"
 
-        return (
+        await message.answer(
             f"⚙ Настройки вашего профиля:\n"
             f"1. Уведомления: {notify_text} (Напишите 'Переключить уведомления')\n"
             f"2. Формат: {format_text} (Напишите 'Переключить формат')\n"
@@ -62,7 +62,7 @@ async def change_grp_vk(message: Message, group_name: str):
         return "❌ Ошибка. Такой группы не найдено в базе данных."
 
 
-@bp.message(text="Отзыв")
+@bp.message(text=["Отзыв", "✍️ Отзыв"])
 async def feedback_start_vk(message: Message):
     # VK не поддерживает FSM так же легко, поэтому используем простой подход:
     # сохраняем состояние в БД или просто просим отправить сообщение

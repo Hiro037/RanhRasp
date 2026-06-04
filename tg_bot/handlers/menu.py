@@ -12,7 +12,7 @@ from services import user_service, schedule_service
 from services.user_service import determine_user_role
 from tg_bot import keyboards as kb
 from config import settings
-from utils.timezone import get_now
+from utils.timezone import get_now, YEKT_TZ
 from utils.image_generator import generate_schedule_image
 
 menu_router = Router()
@@ -51,17 +51,11 @@ async def callback_back_to_menu(callback: CallbackQuery):
         builder.button(text="✍️ Написать админам", callback_data="menu:feedback")
         builder.button(text="🛠️ Админ-панель", callback_data="menu:admin_panel")
         builder.adjust(1)
-        await callback.message.edit_text(
-            "👋 Вы находитесь в главном меню системы расписания.\n"
-            "Выберите интересующий вас раздел:",
-            reply_markup=builder.as_markup()
-        )
+        text = "👋 Вы находитесь в главном меню системы расписания.\nВыберите интересующий вас раздел:"
+        await safe_edit_or_new(callback.message, text, builder.as_markup())
     else:
-        await callback.message.edit_text(
-            "👋 Вы находитесь в главном меню системы расписания.\n"
-            "Выберите интересующий вас раздел:",
-            reply_markup=kb.get_inline_main_menu(is_admin)
-        )
+        text = "👋 Вы находитесь в главном меню системы расписания.\nВыберите интересующий вас раздел:"
+        await safe_edit_or_new(callback.message, text, kb.get_inline_main_menu(is_admin))
     await callback.answer()
 
 
@@ -252,7 +246,7 @@ async def send_schedule(
                 text += "💤 В этот день занятий нет. Отдыхайте!"
             else:
                 for idx, lesson in enumerate(lessons, 1):
-                    time_start = lesson.start_datetime.strftime("%H:%M")
+                    time_start = lesson.start_datetime.astimezone(YEKT_TZ).strftime("%H:%M")
                     teacher = lesson.teacher.name if lesson.teacher else "Не указан"
                     subject_name = lesson.subject.name if lesson.subject else "Без названия"
                     classroom_name = lesson.classroom.name if lesson.classroom else "—"
@@ -270,3 +264,19 @@ async def send_schedule(
             else:
                 target = event.message if isinstance(event, CallbackQuery) else event
                 await target.answer(text, parse_mode="Markdown", reply_markup=reply_markup)
+async def safe_edit_or_new(message, new_text: str, reply_markup, parse_mode="Markdown"):
+    """
+    Безопасно заменяет текущее сообщение на новое.
+    Если текущее сообщение содержит текст – редактирует его.
+    Если это фото/медиа – удаляет старое и отправляет новое текстовое.
+    """
+    try:
+        # Пытаемся отредактировать текст
+        await message.edit_text(new_text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest as e:
+        if "message can't be edited" in str(e) or "there is no text" in str(e):
+            # Если редактирование невозможно – удаляем и отправляем заново
+            await message.delete()
+            await message.answer(new_text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            raise

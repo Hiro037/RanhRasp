@@ -59,23 +59,3 @@ def get_vk_schedule_period_keyboard() -> str:
     kb.row()
     kb.add(Text("🔙 Главное меню", payload={"menu": "back"}), color=KeyboardButtonColor.SECONDARY)
     return kb.get_json()
-
-
-def get_vk_schedule_keyboard(target_date: date, has_next: bool, role: str = "student") -> str:
-    today = get_now().date()
-    date_str = target_date.strftime("%Y-%m-%d")
-    kb = Keyboard(inline=True)
-
-    if target_date != today:
-        kb.add(Text("⬅️ День", payload={"vk_nav": f"prev:{date_str}"}), color=KeyboardButtonColor.PRIMARY)
-    kb.add(Text("🔄", payload={"vk_nav": f"refresh:{date_str}"}), color=KeyboardButtonColor.SECONDARY)
-    if has_next:
-        kb.add(Text("День ➡️", payload={"vk_nav": f"next:{date_str}"}), color=KeyboardButtonColor.PRIMARY)
-
-    if role == "teacher":
-        kb.row()
-        kb.add(Text("✏️ Комментарий", payload={"add_comment_for_date": date_str}), color=KeyboardButtonColor.NEGATIVE)
-
-    kb.row()
-    kb.add(Text("🔙 Главное меню", payload={"menu": "back"}), color=KeyboardButtonColor.SECONDARY)
-    return kb.get_json()

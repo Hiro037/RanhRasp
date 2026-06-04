@@ -11,7 +11,7 @@ from database.models import Lesson
 from services import user_service, schedule_service
 from vk_bot.states import VkTeacherStates
 from vk_bot.loader import vk_bot
-from utils.timezone import get_now
+from utils.timezone import get_now, YEKT_TZ
 
 from tg_bot.loader import tg_bot  # для отправки уведомлений в Telegram
 
@@ -51,7 +51,7 @@ async def vk_show_lessons_for_comment(message: Message):
     for idx, lesson in enumerate(lessons):
         if idx > 0:
             kb.row()
-        time_str = lesson.start_datetime.strftime("%H:%M")
+        time_str = lesson.start_datetime.astimezone(YEKT_TZ).strftime("%H:%M")
         subject_name = lesson.subject.name if lesson.subject else "Без названия"
         btn_text = f"⏰ {time_str} | {subject_name[:20]}"
         kb.add(Text(btn_text, payload={"teach_comment_lesson": lesson.id, "return_date": date_str}), color=KeyboardButtonColor.PRIMARY)
@@ -117,7 +117,7 @@ async def vk_save_comment_and_notify(message: Message):
             return
 
         subject_name = lesson.subject.name if lesson.subject else "Без названия"
-        start_time = lesson.start_datetime.strftime("%H:%M")
+        start_time = lesson.start_datetime.astimezone(YEKT_TZ).strftime("%H:%M")
         teacher_name = lesson.teacher.name if lesson.teacher else "Преподаватель"
 
         await schedule_service.add_comment_to_lesson(session, lesson_id, comment_text)

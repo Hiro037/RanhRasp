@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Integer, String, Boolean, DateTime, ForeignKey, PrimaryKeyConstraint, Text
+from sqlalchemy import Integer, String, Boolean, DateTime, ForeignKey, PrimaryKeyConstraint, Text, BigInteger
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
@@ -10,7 +10,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     platform: Mapped[str] = mapped_column(String(10))  # 'vk' или 'telegram'
-    platform_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    platform_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     teacher_profile_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("teachers.id", ondelete="SET NULL"), unique=True, nullable=True
     )
@@ -134,7 +134,7 @@ class Logs(Base):
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     user_role: Mapped[str] = mapped_column(String(20), default="student")  # Определяется динамически при логировании
     platform: Mapped[str] = mapped_column(String(10), nullable=False)
-    platform_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    platform_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     datetime: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     action_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # success, error

@@ -85,7 +85,7 @@ async def change_group_start(callback: CallbackQuery, state: FSMContext):
         buttons = []
         for g in groups:
             buttons.append([InlineKeyboardButton(text=g.name, callback_data=f"set_new_group_{g.id}")])
-        buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu")])
+        buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:settings")])
 
         await callback.message.edit_text(
             "📋 Выберите вашу новую группу из списка:",
@@ -114,7 +114,7 @@ async def change_group_finish(callback: CallbackQuery):
 async def feedback_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(SettingsFeedbackStates.waiting_for_feedback)
     keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="main_menu")]]
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="menu:back")]]
     )
     await callback.message.edit_text(
         "💬 Напишите ваше предложение, отзыв или сообщение об ошибке для администрации учебного заведения.\n\n*Отправьте сообщение текстом:*",
@@ -140,7 +140,7 @@ async def feedback_received(message: Message, state: FSMContext):
 
     await state.clear()
     keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="📱 В главное меню", callback_data="main_menu")]]
+        inline_keyboard=[[InlineKeyboardButton(text="📱 В главное меню", callback_data="menu:back")]]
     )
     await message.answer(
         "✅ Ваше обращение успешно сохранено и отправлено администрации! Спасибо за обратную связь.",

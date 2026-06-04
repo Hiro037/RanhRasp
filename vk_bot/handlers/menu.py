@@ -9,7 +9,7 @@ from services import user_service, schedule_service
 from services.user_service import determine_user_role
 from vk_bot import keyboards as kb
 from config import settings
-from utils.timezone import get_now
+from utils.timezone import get_now, YEKT_TZ
 from utils.image_generator import generate_schedule_image
 from vk_bot.loader import vk_bot
 
@@ -26,12 +26,6 @@ async def vk_show_main_menu(message: Message):
         "Выберите нужный пункт ниже:",
         keyboard=kb.get_vk_inline_main_menu(is_admin)
     )
-
-
-@vk_menu_labeler.message(func=lambda msg: msg.payload is not None and json.loads(msg.payload).get("menu") == "schedule")
-async def vk_initial_schedule(message: Message):
-    today = get_now().date()
-    await vk_send_schedule_core(message, today)
 
 
 @vk_menu_labeler.message(func=lambda msg: msg.payload is not None and "vk_nav" in json.loads(msg.payload))
@@ -63,7 +57,18 @@ async def vk_send_schedule_core(message: Message, target_date: date, from_week_m
         entity_name = None
         has_next = False
 
-        if role == "student":
+        if role == "teacher":
+            if not user.teacher_profile_id:
+                await message.answer("⚠️ Ваш профиль преподавателя не активирован. Обратитесь к администратору.")
+                return
+            lessons = await schedule_service.get_lessons_for_teacher(session, user.teacher_profile_id, target_date)
+            teacher = await session.get(Teacher, user.teacher_profile_id)
+            entity_name = teacher.name if teacher else "Преподаватель"
+            has_next = await schedule_service.has_lessons_future(session, target_date,
+                                                                 teacher_id=user.teacher_profile_id)
+
+
+        elif role == "student":
             if not user.groups:
                 await message.answer("⚠️ Вы не привязаны к группе. Исправьте в настройках.")
                 return
@@ -73,15 +78,6 @@ async def vk_send_schedule_core(message: Message, target_date: date, from_week_m
             lessons = await schedule_service.get_lessons_for_student(session, group_id, target_date)
             entity_name = group_name
             has_next = await schedule_service.has_lessons_future(session, target_date, group_id=group_id)
-
-        elif role == "teacher":
-            if not user.teacher_profile_id:
-                await message.answer("⚠️ Ваш профиль преподавателя не активирован. Обратитесь к администратору.")
-                return
-            lessons = await schedule_service.get_lessons_for_teacher(session, user.teacher_profile_id, target_date)
-            teacher = await session.get(Teacher, user.teacher_profile_id)
-            entity_name = teacher.name if teacher else "Преподаватель"
-            has_next = await schedule_service.has_lessons_future(session, target_date, teacher_id=user.teacher_profile_id)
 
         else:  # admin
             if user.groups:
@@ -115,7 +111,7 @@ async def vk_send_schedule_core(message: Message, target_date: date, from_week_m
                 text += "💤 В этот день занятий нет. Отдыхайте!"
             else:
                 for idx, lesson in enumerate(lessons, 1):
-                    time_start = lesson.start_datetime.strftime("%H:%M")
+                    time_start = lesson.start_datetime.astimezone(YEKT_TZ).strftime("%H:%M")
                     teacher = lesson.teacher.name if lesson.teacher else "Не указан"
                     subject_name = lesson.subject.name if lesson.subject else "Без названия"
                     classroom_name = lesson.classroom.name if lesson.classroom else "—"
@@ -157,26 +153,79 @@ async def vk_schedule_next_week(message: Message):
     await vk_show_week_keyboard(message, start_of_next_week, "next")
 
 
-async def vk_show_week_keyboard(message: Message, start_date: date, week_type: str):
+async def vk_show_week_keyboard(
+    message: Message,
+    start_date: date,
+    week_type: str
+):
     days = []
+
+    weekdays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
+
     for i in range(7):
-        d = start_date + timedelta(days=i)
-        weekday_ru = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"][i]
-        days.append((d, f"{weekday_ru} {d.strftime('%d.%m')}"))
+        current_day = start_date + timedelta(days=i)
+        days.append(
+            (
+                current_day,
+                f"{weekdays[i]} {current_day.strftime('%d.%m')}"
+            )
+        )
 
-    kb = Keyboard(one_time=False, inline=True)
-    for d, label in days:
-        kb.add(Text(label, payload={"week_day": d.strftime("%Y-%m-%d"), "week_type": week_type}), color=KeyboardButtonColor.PRIMARY)
-        kb.row()
-    # Навигация
-    if week_type == "this":
-        kb.add(Text("Следующая неделя ➡️", payload={"menu": "schedule_next_week"}), color=KeyboardButtonColor.SECONDARY)
-    else:
-        kb.add(Text("⬅️ Эта неделя", payload={"menu": "schedule_this_week"}), color=KeyboardButtonColor.SECONDARY)
+    kb = Keyboard(inline=True)
+
+    # ПН ВТ
+    # СР ЧТ
+    # ПТ СБ
+    # ВС
+    for i, (current_day, label) in enumerate(days):
+        kb.add(
+            Text(
+                label,
+                payload={
+                    "week_day": current_day.strftime("%Y-%m-%d"),
+                    "week_type": week_type,
+                }
+            ),
+            color=KeyboardButtonColor.PRIMARY,
+        )
+
+        if i % 2 == 1 and i != len(days) - 1:
+            kb.row()
+
     kb.row()
-    kb.add(Text("🔙 Главное меню", payload={"menu": "back"}), color=KeyboardButtonColor.SECONDARY)
 
-    await message.answer("📅 Выберите день:", keyboard=kb.get_json())
+    # Кнопка переключения недели
+    if week_type == "this":
+        kb.add(
+            Text(
+                "Следующая неделя ➡️",
+                payload={"menu": "schedule_next_week"},
+            ),
+            color=KeyboardButtonColor.SECONDARY,
+        )
+    else:
+        kb.add(
+            Text(
+                "⬅️ Эта неделя",
+                payload={"menu": "schedule_this_week"},
+            ),
+            color=KeyboardButtonColor.SECONDARY,
+        )
+
+    kb.row()
+
+    kb.add(
+        Text(
+            "🔙 Главное меню",
+            payload={"menu": "back"},
+        ),
+        color=KeyboardButtonColor.SECONDARY,
+    )
+
+    await message.answer(
+        "📅 Выберите день:",
+        keyboard=kb.get_json(),
+    )
 
 
 @vk_menu_labeler.message(func=lambda msg: msg.payload is not None and "week_day" in json.loads(msg.payload))
@@ -185,3 +234,18 @@ async def vk_week_day_selected(message: Message):
     date_str = payload["week_day"]
     target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     await vk_send_schedule_core(message, target_date, from_week_mode=True)
+
+@vk_menu_labeler.message(func=lambda msg: msg.payload is not None and json.loads(msg.payload).get("menu") == "settings")
+async def vk_settings_menu(message: Message):
+    from vk_bot.handlers.settings_feedback import settings_main_vk
+    await settings_main_vk(message)
+
+@vk_menu_labeler.message(func=lambda msg: msg.payload is not None and json.loads(msg.payload).get("menu") == "feedback")
+async def vk_feedback_start(message: Message):
+    from vk_bot.handlers.settings_feedback import feedback_start_vk
+    await feedback_start_vk(message)
+
+@vk_menu_labeler.message(func=lambda msg: msg.payload is not None and json.loads(msg.payload).get("menu") == "admin_stats")
+async def vk_admin_stats(message: Message):
+    from vk_bot.handlers.admin import stats_vk
+    await stats_vk(message)

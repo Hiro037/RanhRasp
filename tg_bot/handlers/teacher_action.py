@@ -12,7 +12,7 @@ from database.connection import async_session
 from database.models import Lesson
 from services import user_service, schedule_service
 from tg_bot.states import TeacherActionStates
-from utils.timezone import get_now
+from utils.timezone import get_now, YEKT_TZ
 
 from tg_bot.loader import tg_bot
 from vk_bot.loader import vk_bot
@@ -48,7 +48,7 @@ async def show_lessons_for_comment(callback: CallbackQuery):
 
     builder = InlineKeyboardBuilder()
     for lesson in lessons:
-        time_str = lesson.start_datetime.strftime("%H:%M")
+        time_str = lesson.start_datetime.astimezone(YEKT_TZ).strftime("%H:%M")
         subject_name = lesson.subject.name if lesson.subject else "Без названия"
         btn_text = f"⏰ {time_str} | {subject_name[:25]}"
         builder.button(text=btn_text, callback_data=f"teach_comment_lesson:{lesson.id}:{date_str}")
@@ -109,7 +109,8 @@ async def save_comment_and_notify(message: Message, state: FSMContext):
             return
 
         subject_name = lesson.subject.name if lesson.subject else "Без названия"
-        start_time = lesson.start_datetime.strftime("%H:%M")
+        start_time = lesson.start_datetime.astimezone(YEKT_TZ).strftime("%H:%M")
+
         teacher_name = lesson.teacher.name if lesson.teacher else "Преподаватель"
 
         # Сохраняем комментарий
