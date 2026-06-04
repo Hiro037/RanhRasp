@@ -17,9 +17,9 @@ services:
       timeout: 5s
       retries: 5
 
-  app:
+  tg_bot:
     build: .
-    container_name: ranhrasp_app
+    container_name: ranhrasp_tg_bot
     restart: always
     depends_on:
       db:
@@ -28,9 +28,24 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-ranhrasp}:${DB_PASSWORD:-secretpassword}@db:5432/${DB_NAME:-ranhrasp_db}
-    shm_size: 2gb
     volumes:
       - ./logs:/app/logs
+    command: ["python", "main_tg.py"]    # явно указываем скрипт
+
+  vk_bot:
+    build: .
+    container_name: ranhrasp_vk_bot
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-ranhrasp}:${DB_PASSWORD:-secretpassword}@db:5432/${DB_NAME:-ranhrasp_db}
+    volumes:
+      - ./logs:/app/logs
+    command: [ "python", "main_vk.py" ]    # VK-бот
 
 volumes:
   postgres_data:

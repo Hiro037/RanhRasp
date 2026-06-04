@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     POETRY_VERSION=2.1.0
 
-# Системные зависимости
+# Системные зависимости (включая для Chromium)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
@@ -27,17 +27,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Установка Poetry
 RUN pip install --no-cache-dir "poetry==$POETRY_VERSION"
-RUN poetry config virtualenvs.create false  # Устанавливаем пакеты в систему
+RUN poetry config virtualenvs.create false
 
 WORKDIR /app
 
-# Копируем файлы зависимостей
+# Копируем зависимости
 COPY pyproject.toml poetry.lock* ./
-
-# Создаём README.md, если его нет (poetry требует)
 RUN if [ ! -f README.md ]; then echo "# RanhRasp" > README.md; fi
-
-# Устанавливаем только зависимости (без самого проекта)
 RUN poetry install --no-root --no-interaction --no-ansi
 
 # Копируем весь код
@@ -46,4 +42,5 @@ COPY . .
 # Устанавливаем браузер Playwright
 RUN playwright install chromium
 
-CMD ["python", "main.py"]
+# Точка входа будет переопределена в docker-compose
+# CMD ["python", "main_tg.py"]
