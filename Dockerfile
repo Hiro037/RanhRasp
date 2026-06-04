@@ -34,6 +34,7 @@ WORKDIR /app
 # Копируем зависимости
 COPY pyproject.toml poetry.lock* ./
 RUN if [ ! -f README.md ]; then echo "# RanhRasp" > README.md; fi
+RUN poetry config requests.timeout 300
 RUN poetry install --no-root --no-interaction --no-ansi
 
 # Копируем весь код

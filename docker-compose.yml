@@ -23,14 +23,14 @@ services:
     restart: always
     depends_on:
       db:
-        condition: service_healthy
+        condition: service_healthy # Ждем, пока сама СУБД разогреется
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-ranhrasp}:${DB_PASSWORD:-secretpassword}@db:5432/${DB_NAME:-ranhrasp_db}
     volumes:
       - ./logs:/app/logs
-    command: ["python", "main_tg.py"]    # явно указываем скрипт
+    command: ["python", "main_tg.py"] # ТГ запускается первым и создает таблицы
 
   vk_bot:
     build: .
@@ -39,13 +39,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      tg_bot:
+        condition: service_started # ВК запустится ТОЛЬКО после того, как ТГ стартует!
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-ranhrasp}:${DB_PASSWORD:-secretpassword}@db:5432/${DB_NAME:-ranhrasp_db}
     volumes:
       - ./logs:/app/logs
-    command: [ "python", "main_vk.py" ]    # VK-бот
+    command: ["python", "main_vk.py"]
 
 volumes:
   postgres_data:
