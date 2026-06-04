@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from database.connection import async_session
 from database.models import Lesson
 from services import user_service, schedule_service
+from vk_bot.keyboards import get_vk_inline_main_menu
 from vk_bot.states import VkTeacherStates
 from vk_bot.loader import vk_bot
 from utils.timezone import get_now, YEKT_TZ
@@ -149,7 +150,7 @@ async def vk_cancel_comment(message: Message):
         from vk_bot.handlers.menu import vk_send_schedule_core
         await vk_send_schedule_core(message, datetime.strptime(return_date_str, "%Y-%m-%d").date())
     else:
-        await message.answer("❌ Отменено.", keyboard=kb.get_vk_inline_main_menu(False))
+        await message.answer("❌ Отменено.", keyboard=get_vk_inline_main_menu(False))
 
 
 async def send_notification_to_students(lesson_id: int, subject: str, time_str: str, teacher: str, comment: str):
