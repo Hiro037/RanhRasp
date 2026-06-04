@@ -16,7 +16,7 @@ class SettingsFeedbackStates(StatesGroup):
     waiting_for_new_group = State()
 
 
-@router.callback_query(F.data == "settings_menu")
+@router.callback_query(F.data == "menu:settings")
 async def show_settings(callback: CallbackQuery):
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(session, "telegram", callback.from_user.id)
@@ -38,7 +38,7 @@ async def show_settings(callback: CallbackQuery):
             current_group = user.groups[0].name if user.groups else "Не выбрана"
             buttons.append([InlineKeyboardButton(text=f"🏫 Группа: {current_group}", callback_data="change_user_group")])
 
-        buttons.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="main_menu")])
+        buttons.append([InlineKeyboardButton(text="⬅️ Главное меню", callback_data="menu:back")])
 
         await callback.message.edit_text(
             "⚙️ **Настройки профиля:**\nИзмените параметры под себя:",
@@ -110,7 +110,7 @@ async def change_group_finish(callback: CallbackQuery):
     await show_settings(callback)
 
 
-@router.callback_query(F.data == "feedback_menu")
+@router.callback_query(F.data == "menu:feedback")
 async def feedback_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(SettingsFeedbackStates.waiting_for_feedback)
     keyboard = InlineKeyboardMarkup(

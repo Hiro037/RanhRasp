@@ -65,12 +65,11 @@ async def on_startup():
 
 def run_vk_bot_in_thread():
     """Запуск VK бота в отдельном потоке с новым изолированным циклом asyncio"""
+    import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(vk_bot.run_polling())
-    finally:
-        loop.close()
+    # Здесь тоже убираем loop.run_until_complete
+    vk_bot.run_polling()
 
 
 async def main():

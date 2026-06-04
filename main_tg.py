@@ -29,7 +29,7 @@ async def on_startup():
         scheduler.add_job(send_daily_notifications, trigger=CronTrigger(hour=8, minute=0),
                           id="daily_notifications", replace_existing=True)
         scheduler.start()
-        logger.info("Планировщик запущен (8:00)")
+        logger.info("Планировщик запущен")
 
 async def main():
     await on_startup()

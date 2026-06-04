@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-import asyncio
 import logging
 from database.connection import init_db
 from vk_bot.loader import vk_bot
@@ -15,14 +13,13 @@ vk_bot.labeler.load(vk_reg.vk_registration_labeler)
 vk_bot.labeler.load(vk_settings.bp)
 vk_bot.labeler.load(vk_teacher.vk_teacher_labeler)
 
-async def main():
+def main():
     logger.info("Инициализация БД...")
-    await init_db()
+    # Передаем задачу инициализации самому vkbottle
+    vk_bot.loop_wrapper.add_task(init_db())
     logger.info("VK бот запущен")
-    await vk_bot.run_polling()
+    # run_polling — синхронный метод, не используйте await
+    vk_bot.run_polling()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Остановлен")
+    main()
