@@ -16,8 +16,8 @@ class User(Base):
     )
     is_notification_on: Mapped[bool] = mapped_column(Boolean, default=True)
     schedule_message_type: Mapped[str] = mapped_column(String(10), default="text")  # 'pic' или 'text'
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    last_activity: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    last_activity: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Связи
     teacher: Mapped["Teacher | None"] = relationship("Teacher", back_populates="user")
@@ -78,7 +78,7 @@ class Lesson(Base):
     __tablename__ = "lessons"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    start_datetime: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    start_datetime: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False)  # лекция, практика, консультация и т.д.
     classroom_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("classrooms.id", ondelete="SET NULL"))
     teacher_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("teachers.id", ondelete="SET NULL"))
@@ -135,7 +135,7 @@ class Logs(Base):
     user_role: Mapped[str] = mapped_column(String(20), default="student")  # Определяется динамически при логировании
     platform: Mapped[str] = mapped_column(String(10), nullable=False)
     platform_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    datetime: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    datetime: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     action_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # success, error
     details: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -39,22 +39,28 @@ def clean_and_split_row(line: str) -> list[str]:
 
 
 def parse_date(text: str) -> date | None:
-    """Извлекает дату, приводя двухзначный год к четырёхзначному (26 -> 2026)."""
     match = DATE_PATTERN.search(text)
     if match:
         day, month, year = match.groups()
         if len(year) == 2:
             year = "20" + year
-        return date(int(year), int(month), int(day))
+        try:
+            return date(int(year), int(month), int(day))
+        except ValueError:
+            # игнорируем неверные даты
+            return None
     return None
 
 
+
 def parse_start_time(text: str) -> time | None:
-    """Извлекает время начала (10.00 -> 10:00)."""
     match = TIME_START_PATTERN.search(text)
     if match:
         hours, minutes = match.groups()
-        return time(int(hours), int(minutes))
+        try:
+            return time(int(hours), int(minutes))
+        except ValueError:
+            return None
     return None
 
 
