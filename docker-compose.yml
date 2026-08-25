@@ -1,33 +1,53 @@
-version: '3.8'
-
 services:
-  fastapi:
-    build: .
-    command: uvicorn api:app --host 0.0.0.0 --port 8000
+  db:
+    image: postgres:15-alpine
+    container_name: ranhrasp_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-ranhrasp}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secretpassword}
+      POSTGRES_DB: ${DB_NAME:-ranhrasp_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "8000:8000"
-    volumes:
-      - .:/app
-      - studentslessons-db:/app/db
-    environment:
-      - PYTHONUNBUFFERED=1
-      - DB_URL=sqlite+aiosqlite:///./students_lessons.db
-    restart: unless-stopped
-    init: true
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ranhrasp} -d ${DB_NAME:-ranhrasp_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  bot:
+  tg_bot:
     build: .
-    command: python main.py
-    environment:
-      - PYTHONUNBUFFERED=1
-      - DB_URL=sqlite+aiosqlite:///./students_lessons.db
-    volumes:
-      - .:/app
-      - studentslessons-db:/app/db
+    container_name: ranhrasp_tg_bot
+    restart: always
     depends_on:
-      - fastapi
-    restart: unless-stopped
-    init: true
+      db:
+        condition: service_healthy # Ждем, пока сама СУБД разогреется
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-ranhrasp}:${DB_PASSWORD:-secretpassword}@db:5432/${DB_NAME:-ranhrasp_db}
+    volumes:
+      - ./logs:/app/logs
+    command: ["python", "main_tg.py"] # ТГ запускается первым и создает таблицы
+
+  vk_bot:
+    build: .
+    container_name: ranhrasp_vk_bot
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      tg_bot:
+        condition: service_started # ВК запустится ТОЛЬКО после того, как ТГ стартует!
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-ranhrasp}:${DB_PASSWORD:-secretpassword}@db:5432/${DB_NAME:-ranhrasp_db}
+    volumes:
+      - ./logs:/app/logs
+    command: ["python", "main_vk.py"]
 
 volumes:
-  studentslessons-db:
+  postgres_data:
