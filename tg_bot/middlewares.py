@@ -21,7 +21,7 @@ class TgLoggingMiddleware(BaseMiddleware):
 
         async with async_session() as session:
             # 1. Пытаемся найти пользователя в нашей БД
-            user = await get_user_by_platform_id(session, "tg", event.from_user.id)
+            user = await get_user_by_platform_id(session, "telegram", event.from_user.id)
             user_id = user.id if user else None
 
             # 2. Определяем роль пользователя
@@ -43,7 +43,7 @@ class TgLoggingMiddleware(BaseMiddleware):
                 # Если все прошло успешно — записываем лог
                 await add_log_entry(
                     session=session,
-                    platform="tg",
+                    platform="telegram",
                     action_type=f"msg: {action[:40]}",
                     status="success",
                     user_id=user_id,
@@ -56,7 +56,7 @@ class TgLoggingMiddleware(BaseMiddleware):
                 # Если в коде хендлера произошла ошибка — фиксируем её в БД
                 await add_log_entry(
                     session=session,
-                    platform="tg",
+                    platform="telegram",
                     action_type=f"msg: {action[:40]}",
                     status="error",
                     user_id=user_id,

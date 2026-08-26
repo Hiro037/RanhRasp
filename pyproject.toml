@@ -5,7 +5,7 @@ description = ""
 authors = [
     {name = "Hiro037",email = "saidmagomedov037@gmail.com"}
 ]
-requires-python = ">=3.12, <3.14"
+requires-python = ">=3.11, <3.14"
 dependencies = [
     "aiogram (>=3.28.2,<4.0.0)",
     "vkbottle (>=4.8.2,<5.0.0)",

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from vkbottle.bot import Blueprint, Message
 from sqlalchemy import select, func
 from vkbottle.framework.labeler import BotLabeler
@@ -7,6 +7,7 @@ from database.connection import async_session
 from database.models import User, Teacher, TeacherRequest, Feedback
 from services.paginator import get_page_items
 from config import settings
+from utils.timezone import get_now
 from vk_bot.loader import vk_bot
 
 bp = BotLabeler()
@@ -36,7 +37,7 @@ async def stats_vk(message: Message):
         return
 
     async with async_session() as session:
-        now = datetime.utcnow()
+        now = get_now()
         day_ago = now - timedelta(days=1)
 
         users_res = await session.execute(select(User))

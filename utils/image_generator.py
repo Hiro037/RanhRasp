@@ -1,6 +1,7 @@
 import asyncio
 from datetime import date, datetime
 from pathlib import Path
+from uuid import uuid4
 from jinja2 import Environment, FileSystemLoader
 from playwright.async_api import async_playwright
 
@@ -119,11 +120,13 @@ async def render_html(lessons: list, target_date: date, group_name: str) -> str:
 async def html_to_image(html: str) -> bytes:
     """
     Рендерит готовую HTML-строку в массив байтов (PNG) через Headless Chromium.
+    Каждый вызов пишет свой уникальный временный файл — параллельные рендеры
+    (ежедневная рассылка через asyncio.gather) не конфликтуют за общий файл.
     """
-    html_path = TEMPLATES_DIR / "_temp_render.html"
+    html_path = TEMPLATES_DIR / f"_temp_render_{uuid4().hex}.html"
 
     try:
-        # Записываем временный файл для Chromium
+        # Записываем временный файл для Chromium (в папке шаблонов, чтобы работали относительные global.css/global.js)
         html_path.write_text(html, encoding="utf-8")
 
         async with async_playwright() as p:
@@ -139,7 +142,7 @@ async def html_to_image(html: str) -> bytes:
             # Вьюпорт подстроен под мобильный экран мессенджеров
             page = await browser.new_page(viewport={"width": 600, "height": 150})
             await page.goto(html_path.as_uri())
-            
+
             # Ждем селекторы и стили CSS
             await page.wait_for_load_state("networkidle")
             await page.wait_for_timeout(300)

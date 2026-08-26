@@ -1,13 +1,11 @@
 import json
 import asyncio
 from datetime import datetime
+from html import escape as html_escape
 from vkbottle.bot import BotLabeler, Message
 from vkbottle import Keyboard, KeyboardButtonColor, Text
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from database.connection import async_session
-from database.models import Lesson
 from services import user_service, schedule_service
 from vk_bot.keyboards import get_vk_inline_main_menu
 from vk_bot.states import VkTeacherStates
@@ -17,6 +15,9 @@ from utils.timezone import get_now, YEKT_TZ
 from tg_bot.loader import tg_bot  # для отправки уведомлений в Telegram
 
 vk_teacher_labeler = BotLabeler()
+
+# Реестр фоновых задач рассылки: живая ссылка не даёт GC собрать задачу до завершения
+_notification_tasks: set[asyncio.Task] = set()
 
 
 @vk_teacher_labeler.message(
@@ -107,14 +108,17 @@ async def vk_save_comment_and_notify(message: Message):
     await vk_bot.state_dispenser.delete(message.from_id)
 
     async with async_session() as session:
-        stmt = select(Lesson).where(Lesson.id == lesson_id).options(
-            selectinload(Lesson.subject), selectinload(Lesson.teacher)
-        )
-        res = await session.execute(stmt)
-        lesson = res.scalars().first()
+        user = await user_service.get_user_by_platform_id(session, "vk", message.from_id)
+
+        # Занятие должно принадлежать именно этому преподавателю (защита от подделки payload)
+        if not user or user.teacher_profile_id is None:
+            await message.answer("❌ У вас нет прав преподавателя.")
+            return
+
+        lesson = await schedule_service.get_lesson_for_teacher(session, lesson_id, user.teacher_profile_id)
 
         if not lesson:
-            await message.answer("❌ Ошибка: занятие не найдено.")
+            await message.answer("❌ Ошибка: занятие не найдено среди ваших занятий.")
             return
 
         subject_name = lesson.subject.name if lesson.subject else "Без названия"
@@ -130,9 +134,11 @@ async def vk_save_comment_and_notify(message: Message):
 
     # Фоновая рассылка (та же функция, что и для Telegram)
     from vk_bot.handlers.teacher_action import send_notification_to_students  # избегаем циклического импорта
-    asyncio.create_task(send_notification_to_students(
+    task = asyncio.create_task(send_notification_to_students(
         lesson_id, subject_name, start_time, teacher_name, comment_text
     ))
+    _notification_tasks.add(task)
+    task.add_done_callback(_notification_tasks.discard)
 
     # Возврат к расписанию
     if return_date_str:
@@ -159,11 +165,11 @@ async def send_notification_to_students(lesson_id: int, subject: str, time_str: 
         recipients = await schedule_service.get_students_for_lesson_notification(session, lesson_id)
 
     text_tg = (
-        f"🔔 *Новый комментарий преподавателя!*\n\n"
-        f"📖 *Предмет:* {subject}\n"
-        f"👨‍🏫 *Преподаватель:* {teacher}\n"
-        f"⏰ *Время:* {time_str}\n\n"
-        f"📝 *Комментарий:*\n_{comment}_"
+        f"🔔 <b>Новый комментарий преподавателя!</b>\n\n"
+        f"📖 <b>Предмет:</b> {html_escape(subject)}\n"
+        f"👨‍🏫 <b>Преподаватель:</b> {html_escape(teacher)}\n"
+        f"⏰ <b>Время:</b> {html_escape(time_str)}\n\n"
+        f"📝 <b>Комментарий:</b>\n<i>{html_escape(comment)}</i>"
     )
     text_vk = (
         f"🔔 Новый комментарий преподавателя!\n\n"
@@ -178,7 +184,7 @@ async def send_notification_to_students(lesson_id: int, subject: str, time_str: 
             continue
         try:
             if student.platform == "telegram":
-                await tg_bot.send_message(chat_id=student.platform_id, text=text_tg, parse_mode="Markdown")
+                await tg_bot.send_message(chat_id=student.platform_id, text=text_tg, parse_mode="HTML")
             elif student.platform == "vk":
                 await vk_bot.api.messages.send(peer_id=student.platform_id, message=text_vk, random_id=0)
         except Exception as e:

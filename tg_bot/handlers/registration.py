@@ -4,8 +4,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 
 from database.connection import async_session
+from config import settings
 from services import user_service
-from services.user_service import determine_user_role
 from tg_bot.keyboards import get_inline_main_menu
 from tg_bot.states import RegistrationStates
 
@@ -164,9 +164,8 @@ async def process_teacher_name(message: Message, state: FSMContext):
 async def cancel_handler(message: Message, state: FSMContext):
     """Позволяет пользователю выйти из любого состояния FSM."""
     current_state = await state.get_state()
-    async with async_session() as session:
-        user = await user_service.get_user_by_platform_id(session, "telegram", message.from_user.id)
-        is_admin = True if determine_user_role(user) == "admin" else False
+    # Админство проверяем по списку из настроек (determine_user_role админа не возвращает)
+    is_admin = message.from_user.id in settings.TG_ADMINS
     if current_state is None:
         await message.answer("❌ Нет активного действия для отмены.")
         return

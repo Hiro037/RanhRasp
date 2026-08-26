@@ -1,15 +1,13 @@
 import asyncio
 from datetime import datetime
+from html import escape as html_escape
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from database.connection import async_session
-from database.models import Lesson
 from services import user_service, schedule_service
 from tg_bot.states import TeacherActionStates
 from utils.timezone import get_now, YEKT_TZ
@@ -18,6 +16,9 @@ from tg_bot.loader import tg_bot
 from vk_bot.loader import vk_bot
 
 teacher_router = Router()
+
+# Реестр фоновых задач рассылки: живая ссылка не даёт GC собрать задачу до завершения
+_notification_tasks: set[asyncio.Task] = set()
 
 
 @teacher_router.callback_query(F.data.startswith("add_comment_for_date:"))
@@ -77,7 +78,22 @@ async def prompt_comment_text(callback: CallbackQuery, state: FSMContext):
         "Текст будет отправлен **всем студентам**, у которых есть это занятие в расписании.\n"
         "Чтобы отменить, отправьте /cancel.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"sched_nav:refresh:{date_str}")]
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"comment:cancel:{date_str}")]
+        ])
+    )
+    await callback.answer()
+
+
+@teacher_router.callback_query(F.data.startswith("comment:cancel:"))
+async def cancel_comment(callback: CallbackQuery, state: FSMContext):
+    """Отменяет ввод комментария и сбрасывает состояние."""
+    await state.clear()
+    date_str = callback.data.split(":")[2]
+    await callback.message.edit_text(
+        "❌ Добавление комментария отменено.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад к расписанию", callback_data=f"sched_nav:refresh:{date_str}")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:back")]
         ])
     )
     await callback.answer()
@@ -97,15 +113,17 @@ async def save_comment_and_notify(message: Message, state: FSMContext):
     await state.clear()
 
     async with async_session() as session:
-        # Получаем занятие с подгрузкой связей
-        stmt = select(Lesson).where(Lesson.id == lesson_id).options(
-            selectinload(Lesson.subject), selectinload(Lesson.teacher)
-        )
-        res = await session.execute(stmt)
-        lesson = res.scalars().first()
+        user = await user_service.get_user_by_platform_id(session, "telegram", message.from_user.id)
+
+        # Занятие должно принадлежать именно этому преподавателю (защита от подделки callback_data)
+        if not user or user.teacher_profile_id is None:
+            await message.answer("❌ У вас нет прав преподавателя.")
+            return
+
+        lesson = await schedule_service.get_lesson_for_teacher(session, lesson_id, user.teacher_profile_id)
 
         if not lesson:
-            await message.answer("❌ Ошибка: занятие не найдено.")
+            await message.answer("❌ Ошибка: занятие не найдено среди ваших занятий.")
             return
 
         subject_name = lesson.subject.name if lesson.subject else "Без названия"
@@ -117,15 +135,17 @@ async def save_comment_and_notify(message: Message, state: FSMContext):
         await schedule_service.add_comment_to_lesson(session, lesson_id, comment_text)
 
     await message.answer(
-        f"✅ Комментарий к занятию **{subject_name}** ({start_time}) сохранён!\n"
+        f"✅ Комментарий к занятию <b>{html_escape(subject_name)}</b> ({start_time}) сохранён!\n"
         f"Запущена рассылка студентам...",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
-    # Фоновая рассылка
-    asyncio.create_task(send_notification_to_students(
+    # Фоновая рассылка (держим ссылку на задачу, чтобы её не собрал GC)
+    task = asyncio.create_task(send_notification_to_students(
         lesson_id, subject_name, start_time, teacher_name, comment_text
     ))
+    _notification_tasks.add(task)
+    task.add_done_callback(_notification_tasks.discard)
 
     # Возвращаем пользователя к расписанию на ту же дату
     if return_date_str:
@@ -140,11 +160,11 @@ async def send_notification_to_students(lesson_id: int, subject: str, time_str: 
         recipients = await schedule_service.get_students_for_lesson_notification(session, lesson_id)
 
     text_tg = (
-        f"🔔 *Новый комментарий преподавателя!*\n\n"
-        f"📖 *Предмет:* {subject}\n"
-        f"👨‍🏫 *Преподаватель:* {teacher}\n"
-        f"⏰ *Время:* {time_str}\n\n"
-        f"📝 *Комментарий:*\n_{comment}_"
+        f"🔔 <b>Новый комментарий преподавателя!</b>\n\n"
+        f"📖 <b>Предмет:</b> {html_escape(subject)}\n"
+        f"👨‍🏫 <b>Преподаватель:</b> {html_escape(teacher)}\n"
+        f"⏰ <b>Время:</b> {html_escape(time_str)}\n\n"
+        f"📝 <b>Комментарий:</b>\n<i>{html_escape(comment)}</i>"
     )
     text_vk = (
         f"🔔 Новый комментарий преподавателя!\n\n"
@@ -159,7 +179,7 @@ async def send_notification_to_students(lesson_id: int, subject: str, time_str: 
             continue
         try:
             if student.platform == "telegram":
-                await tg_bot.send_message(chat_id=student.platform_id, text=text_tg, parse_mode="Markdown")
+                await tg_bot.send_message(chat_id=student.platform_id, text=text_tg, parse_mode="HTML")
             elif student.platform == "vk":
                 await vk_bot.api.messages.send(peer_id=student.platform_id, message=text_vk, random_id=0)
         except Exception as e:

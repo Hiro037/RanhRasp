@@ -131,6 +131,10 @@ async def vk_process_student_group(message: Message):
 async def vk_process_student_format(message: Message):
     payload = json.loads(message.payload)
 
+    # В БД храним 'text' или 'pic', из кнопки приходит 'text' или 'image'
+    fmt = payload["format"]
+    schedule_type = "pic" if fmt == "image" else "text"
+
     async with async_session() as session:
         user = await user_service.get_user_by_platform_id(
             session,
@@ -145,7 +149,7 @@ async def vk_process_student_format(message: Message):
         await user_service.update_user_preferences(
             session,
             user.id,
-            schedule_type=payload["format"]
+            schedule_type=schedule_type
         )
 
     await vk_bot.state_dispenser.set(

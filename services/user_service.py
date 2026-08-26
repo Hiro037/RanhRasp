@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from database.models import User, Group, GroupUser, TeacherRequest, Feedback, Teacher
 from config import Settings
+from utils.timezone import YEKT_TZ
 
 settings = Settings()
 
@@ -101,7 +102,7 @@ async def update_user_preferences(
         update_data["is_notification_on"] = is_notification_on
 
     if update_data:
-        update_data["last_activity"] = datetime.utcnow()
+        update_data["last_activity"] = datetime.now(YEKT_TZ)
         query = update(User).where(User.id == user_id).values(**update_data)
         await session.execute(query)
         await session.commit()
@@ -109,7 +110,7 @@ async def update_user_preferences(
 
 async def update_user_activity(session: AsyncSession, user_id: int) -> None:
     """Обновляет метку последней активности пользователя."""
-    query = update(User).where(User.id == user_id).values(last_activity=datetime.utcnow())
+    query = update(User).where(User.id == user_id).values(last_activity=datetime.now(YEKT_TZ))
     await session.execute(query)
     await session.commit()
 
@@ -163,7 +164,7 @@ async def create_teacher_request(session: AsyncSession, user_id: int, teacher_na
     )
     session.add(request)
     await session.execute(
-        update(User).where(User.id == user_id).values(last_activity=datetime.utcnow())
+        update(User).where(User.id == user_id).values(last_activity=datetime.now(YEKT_TZ))
     )
     await session.commit()
     return request
@@ -180,7 +181,7 @@ async def create_feedback(session: AsyncSession, user_id: int, message: str) -> 
     )
     session.add(feedback)
     await session.execute(
-        update(User).where(User.id == user_id).values(last_activity=datetime.utcnow())
+        update(User).where(User.id == user_id).values(last_activity=datetime.now(YEKT_TZ))
     )
     await session.commit()
     return feedback

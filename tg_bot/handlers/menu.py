@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, date
+from html import escape as html_escape
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, BufferedInputFile, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.orm import selectinload
@@ -42,7 +44,9 @@ async def show_main_menu(message: Message):
 
 
 @menu_router.callback_query(F.data == "menu:back")
-async def callback_back_to_menu(callback: CallbackQuery):
+async def callback_back_to_menu(callback: CallbackQuery, state: FSMContext):
+    # Сбрасываем возможное активное состояние FSM (например, ввод фидбека или комментария)
+    await state.clear()
     is_admin = callback.from_user.id in settings.TG_ADMINS
     if is_admin:
         builder = InlineKeyboardBuilder()
@@ -225,46 +229,45 @@ async def send_schedule(
         if user.schedule_message_type == "pic":
             image_bytes = await generate_schedule_image(lessons, target_date, entity_name)
             input_file = BufferedInputFile(image_bytes, filename=f"schedule_{date_str}.png")
-            caption = f"🖼️ Расписание на {date_str} для {entity_name}"
+            caption = f"🖼️ Расписание на {date_str} для {html_escape(str(entity_name))}"
 
             if edit_mode and isinstance(event, CallbackQuery):
                 try:
                     await event.message.delete()
                 except TelegramBadRequest:
                     pass
-                await event.message.answer_photo(photo=input_file, caption=caption, reply_markup=reply_markup,
-                                                 parse_mode="Markdown")
+                await event.message.answer_photo(photo=input_file, caption=caption, reply_markup=reply_markup)
             else:
                 target = event.message if isinstance(event, CallbackQuery) else event
-                await target.answer_photo(photo=input_file, caption=caption, reply_markup=reply_markup,
-                                          parse_mode="Markdown")
+                await target.answer_photo(photo=input_file, caption=caption, reply_markup=reply_markup)
 
-        # Текстовый формат
+        # Текстовый формат (HTML с экранированием динамических данных из БД)
         else:
-            text = f"📅 *Расписание на {date_str}* | {entity_name}\n\n"
+            text = f"📅 <b>Расписание на {date_str}</b> | {html_escape(str(entity_name))}\n\n"
             if not lessons:
                 text += "💤 В этот день занятий нет. Отдыхайте!"
             else:
                 for idx, lesson in enumerate(lessons, 1):
                     time_start = lesson.start_datetime.astimezone(YEKT_TZ).strftime("%H:%M")
-                    teacher = lesson.teacher.name if lesson.teacher else "Не указан"
-                    subject_name = lesson.subject.name if lesson.subject else "Без названия"
-                    classroom_name = lesson.classroom.name if lesson.classroom else "—"
-                    text += f"{idx}. *{time_start}* — {subject_name}\n"
-                    text += f"   🏫 Ауд: {classroom_name} | 👤 {teacher} ({lesson.type})\n"
+                    teacher = html_escape(lesson.teacher.name) if lesson.teacher else "Не указан"
+                    subject_name = html_escape(lesson.subject.name) if lesson.subject else "Без названия"
+                    classroom_name = html_escape(lesson.classroom.name) if lesson.classroom else "—"
+                    text += f"{idx}. <b>{time_start}</b> — {subject_name}\n"
+                    text += f"   🏫 Ауд: {classroom_name} | 👤 {teacher} ({html_escape(lesson.type)})\n"
                     if lesson.comment:
-                        text += f"   📝 _Заметка: {lesson.comment}_\n"
+                        text += f"   📝 <i>Заметка: {html_escape(lesson.comment)}</i>\n"
                     text += "\n"
 
             if edit_mode and isinstance(event, CallbackQuery):
                 try:
-                    await event.message.edit_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+                    await event.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
                 except TelegramBadRequest:
                     await event.answer("🔄 Данные актуальны")
             else:
                 target = event.message if isinstance(event, CallbackQuery) else event
-                await target.answer(text, parse_mode="Markdown", reply_markup=reply_markup)
-async def safe_edit_or_new(message, new_text: str, reply_markup, parse_mode="Markdown"):
+                await target.answer(text, parse_mode="HTML", reply_markup=reply_markup)
+
+async def safe_edit_or_new(message, new_text: str, reply_markup, parse_mode="HTML"):
     """
     Безопасно заменяет текущее сообщение на новое.
     Если текущее сообщение содержит текст – редактирует его.

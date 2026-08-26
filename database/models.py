@@ -2,6 +2,13 @@ from datetime import datetime
 from sqlalchemy import Integer, String, Boolean, DateTime, ForeignKey, PrimaryKeyConstraint, Text, BigInteger
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from utils.timezone import YEKT_TZ
+
+
+def _now_yekt() -> datetime:
+    """Текущее время в YEKT (aware), чтобы не писать наивные UTC-даты."""
+    return datetime.now(YEKT_TZ)
+
 class Base(DeclarativeBase):
     pass
 
@@ -16,8 +23,8 @@ class User(Base):
     )
     is_notification_on: Mapped[bool] = mapped_column(Boolean, default=True)
     schedule_message_type: Mapped[str] = mapped_column(String(10), default="text")  # 'pic' или 'text'
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    last_activity: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now_yekt)
+    last_activity: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now_yekt, onupdate=_now_yekt)
 
     # Связи
     teacher: Mapped["Teacher | None"] = relationship("Teacher", back_populates="user")
@@ -109,7 +116,7 @@ class TeacherRequest(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     teacher_name: Mapped[str] = mapped_column(String(100), nullable=False)  # ФИО, которое ввел пользователь
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, approved, rejected
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now_yekt)
 
     # Связи
     user: Mapped["User"] = relationship("User", back_populates="teacher_requests")
@@ -121,7 +128,7 @@ class Feedback(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now_yekt)
     is_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)  # Рассмотрено админом или нет
 
     # Связи
@@ -135,7 +142,7 @@ class Logs(Base):
     user_role: Mapped[str] = mapped_column(String(20), default="student")  # Определяется динамически при логировании
     platform: Mapped[str] = mapped_column(String(10), nullable=False)
     platform_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    datetime: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    datetime: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now_yekt)
     action_type: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # success, error
     details: Mapped[str | None] = mapped_column(Text, nullable=True)

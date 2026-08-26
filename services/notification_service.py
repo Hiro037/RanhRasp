@@ -2,6 +2,8 @@
 Сервис для отправки уведомлений администраторам (кроссплатформенный).
 """
 
+from html import escape as html_escape
+
 from config import settings
 from tg_bot.loader import tg_bot
 from vk_bot.loader import vk_bot
@@ -21,15 +23,15 @@ async def notify_admins_about_teacher_request(platform: str, user_id: int, teach
             ]
         ])
         text = (
-            f"📝 *Новая заявка на верификацию преподавателя!*\n\n"
-            f"👤 ID пользователя: `{user_id}`\n"
-            f"✍️ Введённое ФИО: *{teacher_name}*\n\n"
+            f"📝 <b>Новая заявка на верификацию преподавателя!</b>\n\n"
+            f"👤 ID пользователя: <code>{user_id}</code>\n"
+            f"✍️ Введённое ФИО: <b>{html_escape(teacher_name)}</b>\n\n"
             f"Используйте кнопки ниже для быстрой обработки, "
             f"или зайдите в админ-панель для выбора конкретного преподавателя из списка."
         )
         for admin_id in settings.TG_ADMINS:
             try:
-                await tg_bot.send_message(chat_id=admin_id, text=text, parse_mode="Markdown", reply_markup=keyboard)
+                await tg_bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML", reply_markup=keyboard)
             except Exception as e:
                 print(f"Не удалось отправить уведомление админу {admin_id}: {e}")
 
